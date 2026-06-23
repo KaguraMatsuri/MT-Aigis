@@ -1,0 +1,93 @@
+{
+  "name": "mt-aigis",
+  "version": "1.0.0",
+  "author": "No.zomu",
+  "description": "千年战争Aigis macOS Client",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --mac --arm64",
+    "dist:dir": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --dir --mac --arm64 -c.mac.identity=null"
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.matsuri.mt-aigis",
+    "productName": "MT-Aigis",
+    "artifactName": "MT-Aigis-${version}-${arch}.${ext}",
+    "asar": true,
+    "afterPack": "scripts/after-pack.js",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**/*",
+      "resources/**/*",
+      "ui/**/*",
+      "package.json",
+      "!resources/Assets.car",
+      "!resources/icon-layers/foreground-chroma.png",
+      "!resources/MT-Aigis.iconset/**/*",
+      "!resources/MT-Aigis.xcassets/**/*",
+      "!resources/MT-Aigis.icon/**/*",
+      "!.user-data/**/*",
+      "!**/credentials.json",
+      "!**/vault.json",
+      "!**/vault.md",
+      "!**/config.enc",
+      "!**/master.key"
+    ],
+    "mac": {
+      "category": "public.app-category.games",
+      "icon": "resources/MT-Aigis.icon",
+      "bundleVersion": "1.0.0.0",
+      "executableName": "MT-Aigis",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "MT-Aigis",
+      "icon": "resources/MT-Aigis.icns",
+      "contents": [
+        {
+          "x": 140,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "KaguraMatsuri",
+        "repo": "MT-Aigis"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9"
+  }
+}

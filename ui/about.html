@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>关于 MT-Aigis</title>
+  <style>
+    :root {
+      color-scheme: dark light;
+      --window: #1c1c1e;
+      --surface: rgba(44, 44, 46, 0.82);
+      --line: rgba(255, 255, 255, 0.12);
+      --text: #f5f5f7;
+      --muted: #a1a1a6;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --window: #f5f5f7;
+        --surface: rgba(255, 255, 255, 0.86);
+        --line: rgba(60, 60, 67, 0.16);
+        --text: #1c1c1e;
+        --muted: #6e6e73;
+        --shadow: 0 20px 60px rgba(25, 25, 28, 0.10);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      color: var(--text);
+      background: var(--window);
+      font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-app-region: drag;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 48px 32px 30px;
+    }
+
+    main {
+      width: 100%;
+      padding: 28px 28px 24px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      text-align: center;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: saturate(150%) blur(28px);
+      -webkit-backdrop-filter: saturate(150%) blur(28px);
+    }
+
+    img {
+      width: 108px;
+      height: 108px;
+      display: block;
+      margin: 0 auto 18px;
+      object-fit: contain;
+      filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.18));
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 8px 0 20px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    dl {
+      margin: 0;
+      display: grid;
+      gap: 10px;
+      text-align: left;
+    }
+
+    div.row {
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--window) 42%, transparent);
+    }
+
+    dt,
+    dd {
+      margin: 0;
+    }
+
+    dt {
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    dd {
+      text-align: right;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <img id="app-icon" src="../resources/icon.png" alt="MT-Aigis">
+    <h1>MT-Aigis</h1>
+    <p id="subtitle" class="subtitle">千年战争Aigis macOS Client</p>
+    <dl>
+      <div class="row"><dt id="version-label">版本</dt><dd id="version-value">1.0.0.0</dd></div>
+      <div class="row"><dt id="author-label">作者</dt><dd id="author-value">No.zomu</dd></div>
+      <div class="row"><dt id="contact-label">联系方式</dt><dd id="contact-value">SeaRoach@proton.me</dd></div>
+      <div class="row"><dt id="qq-label">腾讯 QQ 群</dt><dd id="qq-value">1022215649</dd></div>
+    </dl>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const lang = ['zh', 'en', 'ja'].includes(params.get('lang')) ? params.get('lang') : 'zh';
+    const copy = {
+      zh: {
+        title: '关于 MT-Aigis',
+        subtitle: '千年战争Aigis macOS Client',
+        version: '版本',
+        author: '作者',
+        contact: '联系方式',
+        qq: '腾讯 QQ 群',
+      },
+      en: {
+        title: 'About MT-Aigis',
+        subtitle: 'Millennium War Aigis macOS Client',
+        version: 'Version',
+        author: 'Author',
+        contact: 'Contact',
+        qq: 'Tencent QQ Server',
+      },
+      ja: {
+        title: 'MT-Aigis について',
+        subtitle: '千年戦争アイギス macOS Client',
+        version: 'バージョン',
+        author: '作者',
+        contact: '連絡先',
+        qq: 'Tencent QQ Server',
+      },
+    }[lang];
+
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : lang;
+    document.title = copy.title;
+    document.getElementById('subtitle').textContent = copy.subtitle;
+    document.getElementById('version-label').textContent = copy.version;
+    document.getElementById('author-label').textContent = copy.author;
+    document.getElementById('contact-label').textContent = copy.contact;
+    document.getElementById('qq-label').textContent = copy.qq;
+    document.getElementById('version-value').textContent = params.get('version') || '1.0.0.0';
+    document.getElementById('author-value').textContent = params.get('author') || 'No.zomu';
+    document.getElementById('contact-value').textContent = params.get('contact') || 'SeaRoach@proton.me';
+    document.getElementById('qq-value').textContent = params.get('qq') || '1022215649';
+
+    if (params.get('scheme') === 'dark') {
+      document.getElementById('app-icon').src = '../resources/icon-layers/legacy-dark.png';
+    }
+  </script>
+</body>
+</html>

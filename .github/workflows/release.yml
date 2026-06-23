@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Select Xcode
+        run: |
+          echo "/Applications/Xcode.app/Contents/Developer/usr/bin" >> "$GITHUB_PATH"
+          xcrun actool --version
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+
+      - name: Build macOS DMG and ZIP
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: npm run dist:mac -- --publish always
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MT-macos-arm64
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
+          if-no-files-found: error

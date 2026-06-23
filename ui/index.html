@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MT-Aigis</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <header id="chrome-bar">
+    <div class="chrome-title">
+      <span class="chrome-brand">MT-AIGIS</span>
+      <span id="top-status" class="chrome-status" data-i18n="starting">正在启动</span>
+    </div>
+  </header>
+
+  <aside id="sidebar">
+    <button id="btn-toggle-sidebar" title="折叠侧栏" aria-label="折叠侧栏">◀</button>
+    <div class="sidebar-head">
+      <div>
+        <p class="eyebrow">MT-AIGIS</p>
+        <h1 data-i18n="clientTitle">千年战争 Aigis</h1>
+      </div>
+    </div>
+
+    <nav class="page-tabs">
+      <button class="tab active" data-page="game" data-i18n="tabGame">游戏</button>
+      <button class="tab" data-page="vault" data-i18n="tabVault">密码库</button>
+      <button class="tab" data-page="settings" data-i18n="tabSettings">设置</button>
+    </nav>
+
+    <main>
+      <section id="page-game" class="page active">
+        <div class="nav-grid">
+          <button id="btn-back" class="control" data-i18n="back">Back</button>
+          <button id="btn-reload" class="control primary reload-control">
+            <span class="reload-glyph" aria-hidden="true">↻</span>
+            <span data-i18n="reload">Reload</span>
+          </button>
+          <button id="btn-forward" class="control" data-i18n="next">Next</button>
+        </div>
+
+        <div class="zoom-grid">
+          <button id="btn-zoom-out" class="control" aria-label="缩小" data-i18n-aria="zoomOut">−</button>
+          <button id="btn-zoom-reset" class="control"><span id="zoom-value">100%</span></button>
+          <button id="btn-zoom-in" class="control" aria-label="放大" data-i18n-aria="zoomIn">＋</button>
+        </div>
+
+        <div class="scroll-control">
+          <div>
+            <span data-i18n="scrollResponse">滚轮响应</span>
+            <small id="scroll-level-label">标准</small>
+          </div>
+          <input id="scroll-level" type="range" min="1" max="5" step="1" value="3" aria-label="游戏滚轮响应速度" data-i18n-aria="scrollResponse">
+        </div>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <p class="card-kicker" data-i18n="networkKicker">网络</p>
+              <h2 data-i18n="network">连接状态</h2>
+            </div>
+            <button id="btn-ping-all" class="link-button" data-i18n="testConnection">连接测试</button>
+          </div>
+          <div class="network-summary">
+            <div>
+              <span class="summary-label" data-i18n="exitIp">出口 IP</span>
+              <span id="network-region" class="region-label" data-i18n="detectingRegion">检测地区中</span>
+            </div>
+            <span id="network-ip" class="mono" data-i18n="detecting">检测中</span>
+          </div>
+          <p id="network-warning" class="network-warning hidden"></p>
+          <div class="ping-list">
+            <div class="ping-row"><span>proton.me</span><span id="ping-proton" class="ping-value">-</span></div>
+            <div class="ping-row"><span>google.com</span><span id="ping-google" class="ping-value">-</span></div>
+            <div class="ping-row"><span>dmm.com</span><span id="ping-dmm" class="ping-value">-</span></div>
+            <div class="ping-row"><span>bilibili.com</span><span id="ping-bilibili" class="ping-value">-</span></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <p class="card-kicker" data-i18n="cacheKicker">缓存</p>
+              <h2 data-i18n="gameCache">游戏缓存</h2>
+            </div>
+            <button id="btn-refresh-cache" class="link-button" data-i18n="refresh">刷新</button>
+          </div>
+          <div class="cache-metrics">
+            <div><span data-i18n="diskCache">磁盘缓存</span><strong id="cache-disk" data-i18n="calculating">计算中</strong></div>
+          </div>
+          <div class="cache-actions">
+            <button id="btn-clear-cache" class="control wide" data-i18n="clearGameCache">清除游戏缓存</button>
+            <button id="btn-clear-cookies" class="control danger wide" data-i18n="clearCookies">清除 Cookies</button>
+          </div>
+        </section>
+
+        <div class="page-foot">
+          <p id="page-title">MT-Aigis</p>
+          <p id="page-url" class="mono subtle">https://play.games.dmm.com/game/aigisc</p>
+      <p id="runtime-message" class="runtime" data-i18n="ready">准备就绪</p>
+        </div>
+      </section>
+
+      <section id="page-vault" class="page">
+        <div class="vault-head">
+          <div>
+            <p class="card-kicker" data-i18n="vaultKicker">本地密码</p>
+            <h2 data-i18n="vaultTitle">密码库</h2>
+          </div>
+          <button id="btn-vault-edit" class="link-button" data-i18n="edit">编辑</button>
+        </div>
+
+        <div id="legacy-warning" class="legacy-warning hidden">
+          <strong data-i18n="legacyTitle">检测到旧版明文密码</strong>
+          <p data-i18n="legacyCopy">可以导入到当前 macOS 用户目录。项目目录仍不会进入安装包。</p>
+          <button id="btn-migrate-vault" class="control primary wide" data-i18n="legacyImport">导入旧版密码</button>
+        </div>
+
+        <div id="vault-status" class="vault-status">
+          <span class="file-icon"></span>
+          <div>
+            <strong id="vault-status-title" data-i18n="vaultMissing">密码库未创建</strong>
+            <p id="vault-status-copy" data-i18n="vaultCreate">点击编辑开始保存。</p>
+          </div>
+        </div>
+
+        <div id="vault-view" class="secret-list">
+          <button class="secret-row" data-field="email">
+            <span data-i18n="email">邮箱</span><strong id="secret-email" class="mono">-</strong>
+          </button>
+          <button class="secret-row" data-field="password">
+            <span data-i18n="password">密码</span><strong id="secret-password" class="mono">-</strong>
+          </button>
+          <button class="secret-row" data-field="twofa">
+            <span>2FA</span>
+            <span class="secret-value">
+              <strong id="secret-twofa" class="mono">-</strong>
+              <span class="totp-bar"><i id="totp-progress"></i></span>
+            </span>
+          </button>
+        </div>
+
+        <form id="vault-edit" class="vault-form hidden">
+          <label><span data-i18n="emailLogin">邮箱 / Login ID</span><input id="vault-email" type="text" autocomplete="off"></label>
+          <label><span data-i18n="password">密码</span><input id="vault-password" type="password" autocomplete="new-password"></label>
+          <label><span data-i18n="twofaSecret">2FA / TOTP Secret</span><input id="vault-twofa" type="text" autocomplete="off"></label>
+          <div class="form-actions">
+            <button id="btn-cancel-vault" type="button" class="control" data-i18n="cancel">取消</button>
+            <button type="submit" class="control primary" data-i18n="save">保存</button>
+          </div>
+        </form>
+
+        <p id="vault-message" class="runtime"></p>
+      </section>
+
+      <section id="page-settings" class="page">
+        <div class="vault-head">
+          <div>
+            <p class="card-kicker" data-i18n="settingsKicker">偏好设置</p>
+            <h2 data-i18n="settingsTitle">设置</h2>
+          </div>
+        </div>
+
+        <section class="card">
+          <div class="settings-row">
+            <div>
+              <strong data-i18n="language">语言</strong>
+              <p data-i18n="languageHelp">默认跟随系统语言。</p>
+            </div>
+            <select id="language-select">
+              <option value="auto" data-i18n="langAuto">自动</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+            </select>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <p class="card-kicker" data-i18n="updateKicker">更新</p>
+              <h2 data-i18n="updates">自动更新</h2>
+            </div>
+            <button id="btn-check-update" class="link-button" data-i18n="checkNow">检查</button>
+          </div>
+          <p id="update-state" class="runtime" data-i18n="ready">准备就绪</p>
+        </section>
+
+        <section class="card about-card">
+          <p class="card-kicker" data-i18n="aboutKicker">关于</p>
+          <h2>MT-Aigis</h2>
+          <p><span data-i18n="version">版本</span>: <strong id="about-version">1.0.0.0</strong></p>
+          <p><span data-i18n="author">作者</span>: <strong id="about-author">No.zomu</strong></p>
+          <button class="copy-line" data-copy="SeaRoach@proton.me">
+            <span data-i18n="contact">联系方式</span>
+            <strong>SeaRoach@proton.me</strong>
+          </button>
+          <p data-i18n="gameName">千年战争 Aigis</p>
+          <button class="copy-line" data-copy="1022215649">
+            <span id="qq-label">腾讯 QQ 群</span>
+            <strong>1022215649</strong>
+          </button>
+          <p class="runtime" id="settings-message"></p>
+        </section>
+      </section>
+    </main>
+  </aside>
+
+  <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
+    <span id="mute-label" data-i18n="unmuted">静音游戏</span>
+  </button>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

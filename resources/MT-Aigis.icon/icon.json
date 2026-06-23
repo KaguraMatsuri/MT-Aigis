@@ -1,0 +1,19 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.96000,0.96000,0.97000,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "foreground-1024.png"
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}
