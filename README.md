@@ -79,9 +79,99 @@ npm run dist:mac
 
 ## GitHub 发布
 
-1. 在 GitHub 创建仓库 `KaguraMatsuri/MT-Aigis`。
-2. 本地执行 `git remote add origin https://github.com/KaguraMatsuri/MT-Aigis.git`。
-3. 执行 `git push -u origin main`。
-4. 发布新版时修改 `package.json` 版本号，创建并推送标签，例如 `git tag v1.0.0 && git push origin v1.0.0`。
+### 首次准备
 
-仓库内的 GitHub Actions 会在标签发布时生成 DMG、ZIP 与更新清单。
+1. 在 GitHub 创建公开仓库 `KaguraMatsuri/MT-Aigis`。
+2. 本地绑定远程仓库：
+
+```bash
+git remote add origin https://github.com/KaguraMatsuri/MT-Aigis.git
+git push -u origin main
+```
+
+3. 确认仓库启用了 Actions，且 `.github/workflows/release.yml` 已推送到默认分支。
+
+### 每次发新版
+
+1. 修改 `package.json` 里的 `version`。
+
+当前约定：
+- `package.json` 的 `version` 例如 `1.0.0`
+- 应用显示版本和 `bundleVersion` 例如 `1.0.0.0`
+- Git 标签使用 `v1.0.0`
+
+2. 提交版本修改：
+
+```bash
+git add .
+git commit -m "Release v1.0.0"
+```
+
+3. 创建并推送标签：
+
+```bash
+git tag v1.0.0
+git push origin main
+git push origin v1.0.0
+```
+
+4. 等待 GitHub Actions 执行完成。
+
+工作流会自动构建并上传：
+- `MT-Aigis-<version>-arm64.dmg`
+- `MT-Aigis-<version>-arm64.zip`
+- `latest-mac.yml`
+- 对应的 `.blockmap`
+
+### 自动更新逻辑
+
+应用启动后会调用 `electron-updater` 检查：
+
+`https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/latest-mac.yml`
+
+更新过程如下：
+
+1. 应用读取 `latest-mac.yml`
+2. 取得最新版本号、ZIP 文件名、SHA512 与文件大小
+3. 如果远端版本高于当前版本，则自动下载 ZIP 安装包
+4. 下载完成后，用户退出应用时自动安装新版本
+
+当前项目不再依赖 GitHub 的 `releases.atom` 订阅源，而是直接读取
+`latest/download/latest-mac.yml`，这样更稳定，也更接近标准桌面应用更新流程。
+
+### 为什么会出现 404
+
+如果自动更新返回 404，通常不是代码坏了，而是以下情况之一：
+
+- GitHub 仓库还不存在
+- 仓库不是公开仓库
+- 还没有任何 GitHub Release
+- Release 里没有 `latest-mac.yml`
+- Release 里没有对应 ZIP 安装包
+- 标签已推送，但 Actions 还没跑完
+
+只要 GitHub Release 页面下列文件齐全，自动更新就会正常工作：
+
+- `latest-mac.yml`
+- `MT-Aigis-<version>-arm64.zip`
+- `MT-Aigis-<version>-arm64.zip.blockmap`
+- `MT-Aigis-<version>-arm64.dmg`
+- `MT-Aigis-<version>-arm64.dmg.blockmap`
+
+### 发版自检
+
+发布前建议本地先执行：
+
+```bash
+npm install
+npm run dist:mac -- --publish never
+```
+
+发布后建议检查：
+
+```bash
+curl -I https://github.com/KaguraMatsuri/MT-Aigis/releases/latest
+curl -I https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/latest-mac.yml
+```
+
+如果这两个地址都不是 `404`，自动更新链路通常就是通的。
