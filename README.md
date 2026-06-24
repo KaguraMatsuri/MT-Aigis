@@ -1,15 +1,15 @@
-# MT-Aigis
-English | Chinese
-
-千年战争Aigis client for macOS
-为 macOS 26 / 27 定制与适配的 千年战争Aigis游戏客户端. (同样适配于 macOS 15 *更低版本未经测试 *Intel Mac未经测试)
-
-主要功能:
+# MT-Aigis。
+English | Chinese  
+  
+千年战争Aigis client for macOS  
+为 macOS 26 / 27 定制与适配的 千年战争Aigis游戏客户端. (同样适配于 macOS 15 *更低版本未经测试 *Intel Mac未经测试)  
+  
+主要功能:  
 [适配] 滚动逻辑: 默认, 在 macOS 下, 对游戏进行滚动操作时, 游戏页面会进行高速的多页滚动. MT-Aigis 对此进行了修复, 同时给予可调整的滚动选项.  
 [适配] 图标: 为 macOS 26 / 27 进行图标 (深色模式 / 浅色模式 / 透明模式 / 色彩模式) 的适配.  
-[适配] 界面: 为 macOS 适配 深色模式 / 浅色模式.
-[适配] 语言: 根据 macOS 语言设置自动切换 中文 / 英文 / 日文.
-[功能] 关闭游戏音量.
-[功能] 密码库: 侧边栏中, 可手动键入 E-mail 与 Password / TOTP, 并点击自动复制.
-[功能] 缓存 / Cookies 统计与清理.
-[功能] 监测出口 IP, 提供对不同域名的 Ping 检测功能.
+[适配] 界面: 为 macOS 适配 深色模式 / 浅色模式.  
+[适配] 语言: 根据 macOS 语言设置自动切换 中文 / 英文 / 日文.  
+[功能] 关闭游戏音量.  
+[功能] 密码库: 侧边栏中, 可手动键入 E-mail 与 Password / TOTP, 并点击自动复制.  
+[功能] 缓存 / Cookies 统计与清理.  
+[功能] 监测出口 IP, 提供对不同域名的 Ping 检测功能.  
