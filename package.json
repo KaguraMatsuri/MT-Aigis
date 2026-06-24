@@ -2,6 +2,7 @@
   "name": "mt-aigis",
   "version": "1.0.0",
   "author": "No.zomu",
+  "license": "LicenseRef-MT-Aigis-Personal-Use-1.0",
   "description": "千年战争Aigis macOS Client",
   "main": "main.js",
   "scripts": {
@@ -64,15 +65,20 @@
     "dmg": {
       "title": "MT-Aigis",
       "icon": "resources/MT-Aigis.icns",
+      "backgroundColor": "#d8d8dc",
+      "window": {
+        "width": 720,
+        "height": 440
+      },
       "contents": [
         {
-          "x": 140,
-          "y": 220,
+          "x": 190,
+          "y": 180,
           "type": "file"
         },
         {
-          "x": 410,
-          "y": 220,
+          "x": 520,
+          "y": 180,
           "type": "link",
           "path": "/Applications"
         }

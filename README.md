@@ -24,6 +24,7 @@ npm start
 - macOS 触控板滚动归一化：拦截高频像素滚动，向 H5 游戏发送低频离散滚动。
 - 密码页使用圆点遮罩，点击整行复制；密码剪贴板会在 60 秒后清空。
 - 自定义代理使用同一游戏会话，网络检测也经过相同代理。
+- 检测到新版本后自动下载 DMG，并直接打开安装器。
 
 ## 本机数据
 
@@ -123,21 +124,18 @@ git push origin v1.0.0
 - `latest-mac.yml`
 - 对应的 `.blockmap`
 
-### 自动更新逻辑
+### 自动更新
 
-应用启动后会调用 `electron-updater` 检查：
+应用启动后会检查：
 
 `https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/latest-mac.yml`
 
 更新过程如下：
 
 1. 应用读取 `latest-mac.yml`
-2. 取得最新版本号、ZIP 文件名、SHA512 与文件大小
-3. 如果远端版本高于当前版本，则自动下载 ZIP 安装包
-4. 下载完成后，用户退出应用时自动安装新版本
-
-当前项目不再依赖 GitHub 的 `releases.atom` 订阅源，而是直接读取
-`latest/download/latest-mac.yml`，这样更稳定，也更接近标准桌面应用更新流程。
+2. 取得最新版本号和 DMG 文件信息
+3. 如果远端版本高于当前版本，则自动下载 DMG 安装包
+4. 下载完成后自动打开安装器，并退出当前应用
 
 ### 为什么会出现 404
 
@@ -147,16 +145,16 @@ git push origin v1.0.0
 - 仓库不是公开仓库
 - 还没有任何 GitHub Release
 - Release 里没有 `latest-mac.yml`
-- Release 里没有对应 ZIP 安装包
+- Release 里没有对应 DMG 安装包
 - 标签已推送，但 Actions 还没跑完
 
 只要 GitHub Release 页面下列文件齐全，自动更新就会正常工作：
 
 - `latest-mac.yml`
-- `MT-Aigis-<version>-arm64.zip`
-- `MT-Aigis-<version>-arm64.zip.blockmap`
 - `MT-Aigis-<version>-arm64.dmg`
 - `MT-Aigis-<version>-arm64.dmg.blockmap`
+- `MT-Aigis-<version>-arm64.zip`
+- `MT-Aigis-<version>-arm64.zip.blockmap`
 
 ### 发版自检
 
@@ -175,3 +173,14 @@ curl -I https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/lates
 ```
 
 如果这两个地址都不是 `404`，自动更新链路通常就是通的。
+
+## 授权
+
+本项目使用 `LICENSE` 中的 `MT-Aigis Personal Use License 1.0`。
+
+简要来说：
+
+- 允许免费下载和使用
+- 允许自行修改后私下使用
+- 不允许转发、镜像、再分发源码或成品
+- 不允许移除作者署名与授权说明

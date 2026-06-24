@@ -93,7 +93,8 @@
       text-align: left;
     }
 
-    div.row {
+    button.row {
+      width: 100%;
       padding: 11px 12px;
       display: flex;
       justify-content: space-between;
@@ -101,6 +102,21 @@
       border-radius: 12px;
       background: color-mix(in srgb, var(--window) 42%, transparent);
       align-items: center;
+      border: 0;
+      color: inherit;
+      font: inherit;
+      cursor: default;
+      text-align: left;
+      -webkit-app-region: no-drag;
+      transition: background 120ms ease, transform 120ms ease;
+    }
+
+    button.row:active {
+      transform: scale(0.995);
+    }
+
+    button.row.copied {
+      background: color-mix(in srgb, var(--window) 28%, var(--text) 12%);
     }
 
     dt,
@@ -126,10 +142,10 @@
     <h1>MT-Aigis</h1>
     <p id="subtitle" class="subtitle">千年战争Aigis macOS Client</p>
     <dl>
-      <div class="row"><dt id="version-label">版本</dt><dd id="version-value">1.0.0.0</dd></div>
-      <div class="row"><dt id="author-label">作者</dt><dd id="author-value">No.zomu</dd></div>
-      <div class="row"><dt id="contact-label">联系方式</dt><dd id="contact-value">SeaRoach@proton.me</dd></div>
-      <div class="row"><dt id="qq-label">腾讯 QQ 群</dt><dd id="qq-value">1022215649</dd></div>
+      <button type="button" class="row" data-copy-target="version-value"><dt id="version-label">版本</dt><dd id="version-value">1.0.0.0</dd></button>
+      <button type="button" class="row" data-copy-target="author-value"><dt id="author-label">作者</dt><dd id="author-value">No.zomu</dd></button>
+      <button type="button" class="row" data-copy-target="contact-value"><dt id="contact-label">联系方式</dt><dd id="contact-value">SeaRoach@proton.me</dd></button>
+      <button type="button" class="row" data-copy-target="qq-value"><dt id="qq-label">腾讯 QQ 群</dt><dd id="qq-value">1022215649</dd></button>
     </dl>
   </main>
   <script>
@@ -146,7 +162,7 @@
       },
       en: {
         title: 'About MT-Aigis',
-        subtitle: 'Millennium War Aigis macOS Client',
+        subtitle: '千年戦争アイギス macOS Client',
         version: 'Version',
         author: 'Author',
         contact: 'Contact',
@@ -177,6 +193,24 @@
     if (params.get('scheme') === 'dark') {
       document.getElementById('app-icon').src = '../resources/icon-layers/legacy-dark.png';
     }
+
+    const api = window.mtAigis;
+    document.querySelectorAll('[data-copy-target]').forEach((row) => {
+      row.addEventListener('click', async () => {
+        const valueNode = document.getElementById(row.dataset.copyTarget);
+        const value = valueNode ? valueNode.textContent.trim() : '';
+        if (!value) return;
+        try {
+          if (api && typeof api.invoke === 'function') {
+            await api.invoke('copy:text', value);
+          } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(value);
+          }
+          row.classList.add('copied');
+          setTimeout(() => row.classList.remove('copied'), 900);
+        } catch {}
+      });
+    });
   </script>
 </body>
 </html>

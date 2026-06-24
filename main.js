@@ -10,10 +10,10 @@ const {
   nativeTheme,
   dialog,
 } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const log = require('electron-log/main');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const { SecureConfigStore, defaultConfig } = require('./lib/secure-config');
@@ -39,7 +39,7 @@ const AUTHOR_NAME = 'No.zomu';
 const CONTACT_EMAIL = 'SeaRoach@proton.me';
 const QQ_GROUP = '1022215649';
 const GITHUB_REPO = 'https://github.com/KaguraMatsuri/MT-Aigis';
-const UPDATE_FEED_URL = `${GITHUB_REPO}/releases/latest/download`;
+const UPDATE_MANIFEST_URL = `${GITHUB_REPO}/releases/latest/download/latest-mac.yml`;
 const THEME_COLORS = {
   dark: '#101011',
   light: '#f2f2f7',
@@ -100,28 +100,32 @@ const APP_TEXT = {
     qq: '腾讯 QQ 群',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '准备就绪',
-    updateChecking: '正在检查更新...',
-    updateDownloading: '正在下载 {version}...',
+    updateChecking: '检查中',
+    updateAvailable: '检测到更新，正在下载',
     updateDownloadingPercent: '正在下载 {percent}%...',
-    updateCurrent: '已是最新版本。',
-    updateDownloaded: '更新 {version} 会在退出 MT-Aigis 后安装。',
-    updateDev: '打包版本才会检查更新。',
+    updateCurrent: '未检测到更新',
+    updateOpening: '正在打开安装器',
+    updateOpened: '安装器已打开',
+    updateFailed: '更新失败',
+    updateDev: '当前版本不检查更新',
   },
   en: {
     aboutMenu: 'About MT-Aigis',
     quitMenu: 'Quit MT-Aigis',
     aboutTitle: 'About MT-Aigis',
-    subtitle: 'Millennium War Aigis macOS Client',
+    subtitle: '千年戦争アイギス macOS Client',
     contact: 'Contact',
     qq: 'Tencent QQ Server',
     copyright: `Author ${AUTHOR_NAME}`,
     ready: 'Ready',
-    updateChecking: 'Checking for updates...',
-    updateDownloading: 'Downloading {version}...',
+    updateChecking: 'Checking',
+    updateAvailable: 'Update found. Downloading',
     updateDownloadingPercent: 'Downloading {percent}%...',
-    updateCurrent: 'Already up to date.',
-    updateDownloaded: 'Update {version} will install when MT-Aigis quits.',
-    updateDev: 'Updates are checked in packaged builds only.',
+    updateCurrent: 'No update found',
+    updateOpening: 'Opening installer',
+    updateOpened: 'Installer opened',
+    updateFailed: 'Update failed',
+    updateDev: 'Updates are disabled here',
   },
   ja: {
     aboutMenu: 'MT-Aigis について',
@@ -132,12 +136,14 @@ const APP_TEXT = {
     qq: 'Tencent QQ Server',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '準備完了',
-    updateChecking: 'アップデートを確認中...',
-    updateDownloading: '{version} をダウンロード中...',
+    updateChecking: '確認中',
+    updateAvailable: '更新を検出。ダウンロード中',
     updateDownloadingPercent: 'ダウンロード中 {percent}%...',
-    updateCurrent: '最新版です。',
-    updateDownloaded: 'アップデート {version} は MT-Aigis 終了後にインストールされます。',
-    updateDev: 'アップデート確認はパッケージ版のみ有効です。',
+    updateCurrent: '更新はありません',
+    updateOpening: 'インストーラを開いています',
+    updateOpened: 'インストーラを開きました',
+    updateFailed: '更新に失敗しました',
+    updateDev: 'この環境では更新を確認しません',
   },
 };
 
@@ -195,17 +201,9 @@ let updateState = {
   version: '',
   error: '',
 };
+let updateDownloadTask = null;
 
 log.initialize();
-autoUpdater.logger = log;
-autoUpdater.autoDownload = true;
-autoUpdater.autoInstallOnAppQuit = true;
-if (app.isPackaged) {
-  autoUpdater.setFeedURL({
-    provider: 'generic',
-    url: UPDATE_FEED_URL,
-  });
-}
 
 function debugLog(...parts) {
   try {
@@ -297,6 +295,7 @@ function showAboutDialog() {
     show: false,
     icon: path.join(__dirname, 'resources', 'icon.png'),
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -354,36 +353,159 @@ function setUpdateState(status, message, extra = {}) {
 
 function formatUpdateError(error) {
   const message = error && error.message ? error.message : String(error || '');
-  if (/releases\.atom/i.test(message) || /latest-mac\.yml/i.test(message) || /\b404\b/.test(message)) {
-    return '未找到可用更新。请先在 GitHub Releases 发布版本，并上传 latest-mac.yml、zip 与 dmg 安装包。';
+  if (/releases\.atom|latest-mac\.yml|\b404\b|missing dmg|invalid manifest/i.test(message)) {
+    return appText('updateCurrent');
   }
-  return message;
+  return appText('updateFailed');
+}
+
+function parseLatestManifest(source) {
+  const manifest = {
+    version: '',
+    files: [],
+  };
+  let currentFile = null;
+  for (const rawLine of String(source || '').split(/\r?\n/)) {
+    const line = rawLine.replace(/\t/g, '  ');
+    let match = line.match(/^version:\s*['"]?(.+?)['"]?\s*$/);
+    if (match) {
+      manifest.version = match[1].trim();
+      continue;
+    }
+    match = line.match(/^\s*-\s+url:\s*['"]?(.+?)['"]?\s*$/);
+    if (match) {
+      currentFile = { url: match[1].trim(), sha512: '', size: 0 };
+      manifest.files.push(currentFile);
+      continue;
+    }
+    if (!currentFile) continue;
+    match = line.match(/^\s+sha512:\s*['"]?(.+?)['"]?\s*$/);
+    if (match) {
+      currentFile.sha512 = match[1].trim();
+      continue;
+    }
+    match = line.match(/^\s+size:\s*(\d+)\s*$/);
+    if (match) {
+      currentFile.size = Number.parseInt(match[1], 10) || 0;
+    }
+  }
+  return manifest;
+}
+
+function compareVersions(a, b) {
+  const left = String(a || '').split('.').map((item) => Number.parseInt(item, 10) || 0);
+  const right = String(b || '').split('.').map((item) => Number.parseInt(item, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const l = left[index] || 0;
+    const r = right[index] || 0;
+    if (l > r) return 1;
+    if (l < r) return -1;
+  }
+  return 0;
+}
+
+async function fetchTextWithMeta(url) {
+  const response = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      'user-agent': CHROME_UA,
+      accept: 'text/plain, text/yaml, */*',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return {
+    text: await response.text(),
+    url: response.url || url,
+  };
+}
+
+async function fetchBinary(url) {
+  const response = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      'user-agent': CHROME_UA,
+      accept: 'application/octet-stream,*/*',
+    },
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`HTTP ${response.status || 0}`);
+  }
+  return response;
+}
+
+function appVersionValue() {
+  return app.getVersion ? app.getVersion() : '0.0.0';
+}
+
+function pickDmgAsset(manifest) {
+  if (!manifest || !Array.isArray(manifest.files)) return null;
+  return manifest.files.find((item) => /\.dmg$/i.test(item.url || '')) || null;
+}
+
+async function readLatestManifest() {
+  const result = await fetchTextWithMeta(UPDATE_MANIFEST_URL);
+  const manifest = parseLatestManifest(result.text);
+  const dmg = pickDmgAsset(manifest);
+  if (!manifest.version) throw new Error('invalid manifest');
+  if (!dmg) throw new Error('missing dmg');
+  return {
+    ...manifest,
+    manifestUrl: result.url,
+    dmg: {
+      ...dmg,
+      downloadUrl: new URL(dmg.url, result.url).toString(),
+    },
+  };
+}
+
+async function downloadUpdateDmg(manifest) {
+  const version = manifest.version || 'latest';
+  const updateDir = path.join(app.getPath('downloads') || path.join(os.homedir(), 'Downloads'), 'MT-Aigis Updates');
+  const finalPath = path.join(updateDir, `MT-Aigis-${version}.dmg`);
+  const tempPath = `${finalPath}.download`;
+  fs.mkdirSync(updateDir, { recursive: true });
+  const response = await fetchBinary(manifest.dmg.downloadUrl);
+  const total = Number.parseInt(response.headers.get('content-length') || '', 10) || manifest.dmg.size || 0;
+  const reader = response.body.getReader();
+  const stream = fs.createWriteStream(tempPath);
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      stream.write(Buffer.from(value));
+      const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+      setUpdateState('downloading', appText('updateDownloadingPercent', { percent }), { version });
+    }
+    await new Promise((resolve, reject) => stream.end((error) => error ? reject(error) : resolve()));
+    fs.renameSync(tempPath, finalPath);
+    return finalPath;
+  } catch (error) {
+    try { stream.destroy(); } catch {}
+    try { fs.unlinkSync(tempPath); } catch {}
+    throw error;
+  }
+}
+
+function openInstallerAndQuit(installerPath) {
+  setUpdateState('opening', appText('updateOpening'));
+  return shell.openPath(installerPath).then((result) => {
+    if (result) throw new Error(result);
+    setUpdateState('opened', appText('updateOpened'));
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close();
+    }
+    setTimeout(() => app.quit(), 600);
+    return updateState;
+  });
 }
 
 function setupAutoUpdater() {
-  autoUpdater.on('checking-for-update', () => setUpdateState('checking', appText('updateChecking')));
-  autoUpdater.on('update-available', (info) => {
-    setUpdateState('available', appText('updateDownloading', { version: info.version || '' }), {
-      version: info.version || '',
-    });
-  });
-  autoUpdater.on('update-not-available', () => setUpdateState('current', appText('updateCurrent')));
-  autoUpdater.on('download-progress', (progress) => {
-    setUpdateState('downloading', appText('updateDownloadingPercent', {
-      percent: Math.round(progress.percent || 0),
-    }));
-  });
-  autoUpdater.on('update-downloaded', (info) => {
-    setUpdateState('downloaded', appText('updateDownloaded', { version: info.version || '' }), {
-      version: info.version || '',
-    });
-  });
-  autoUpdater.on('error', (error) => {
-    const message = formatUpdateError(error);
-    setUpdateState('error', message, {
-      error: message,
-    });
-  });
+  return true;
 }
 
 function checkForUpdates(manual) {
@@ -391,16 +513,30 @@ function checkForUpdates(manual) {
     setUpdateState('dev', appText('updateDev'));
     return Promise.resolve(updateState);
   }
-  return autoUpdater.checkForUpdatesAndNotify().then(() => updateState).catch((error) => {
-    const message = formatUpdateError(error);
-    setUpdateState('error', message, {
-      error: message,
+  if (updateDownloadTask) return updateDownloadTask;
+  setUpdateState('checking', appText('updateChecking'));
+  updateDownloadTask = readLatestManifest()
+    .then((manifest) => {
+      if (compareVersions(manifest.version, appVersionValue()) <= 0) {
+        setUpdateState('current', appText('updateCurrent'));
+        return updateState;
+      }
+      setUpdateState('available', appText('updateAvailable'), { version: manifest.version });
+      return downloadUpdateDmg(manifest).then(openInstallerAndQuit);
+    })
+    .catch((error) => {
+      const message = formatUpdateError(error);
+      const status = message === appText('updateCurrent') ? 'current' : 'error';
+      setUpdateState(status, message, { error: message });
+      if (manual && status === 'error') {
+        dialog.showErrorBox('MT-Aigis', message);
+      }
+      return updateState;
+    })
+    .finally(() => {
+      updateDownloadTask = null;
     });
-    if (manual) {
-      dialog.showErrorBox('MT-Aigis Update', updateState.message);
-    }
-    return updateState;
-  });
+  return updateDownloadTask;
 }
 
 function createResourceStats() {
