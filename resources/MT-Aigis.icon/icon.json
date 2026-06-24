@@ -1,18 +1,26 @@
 {
-  "fill": {
-    "automatic-gradient": "extended-srgb:0.96000,0.96000,0.97000,1.00000"
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.96000,0.96000,0.97000,1.00000"
   },
-  "groups": [
+  "groups" : [
     {
-      "layers": [
+      "layers" : [
         {
-          "image-name": "foreground-1024.png"
+          "image-name" : "foreground-1024.png"
         }
-      ]
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
     }
   ],
-  "supported-platforms": {
-    "squares": [
+  "supported-platforms" : {
+    "squares" : [
       "macOS"
     ]
   }

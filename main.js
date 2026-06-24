@@ -272,12 +272,12 @@ function showAboutDialog() {
     return;
   }
   aboutWindow = new BrowserWindow({
-    width: 420,
-    height: 430,
-    minWidth: 420,
-    maxWidth: 420,
-    minHeight: 430,
-    maxHeight: 430,
+    width: 460,
+    height: 520,
+    minWidth: 460,
+    maxWidth: 460,
+    minHeight: 520,
+    maxHeight: 520,
     resizable: false,
     minimizable: false,
     fullscreenable: false,

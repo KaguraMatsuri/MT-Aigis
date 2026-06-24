@@ -33,9 +33,9 @@
     html,
     body {
       width: 100%;
-      height: 100%;
+      min-height: 100%;
       margin: 0;
-      overflow: hidden;
+      overflow: auto;
       color: var(--text);
       background: var(--window);
       font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
@@ -46,16 +46,16 @@
     }
 
     body {
-      display: grid;
-      place-items: center;
-      padding: 48px 32px 30px;
+      display: block;
+      padding: 34px 28px 24px;
     }
 
     main {
-      width: 100%;
-      padding: 28px 28px 24px;
+      width: min(100%, 372px);
+      margin: 0 auto;
+      padding: 24px 24px 20px;
       border: 1px solid var(--line);
-      border-radius: 28px;
+      border-radius: 24px;
       text-align: center;
       background: var(--surface);
       box-shadow: var(--shadow);
@@ -64,23 +64,23 @@
     }
 
     img {
-      width: 108px;
-      height: 108px;
+      width: 96px;
+      height: 96px;
       display: block;
-      margin: 0 auto 18px;
+      margin: 0 auto 16px;
       object-fit: contain;
       filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.18));
     }
 
     h1 {
       margin: 0;
-      font-size: 28px;
+      font-size: 27px;
       line-height: 1.1;
       letter-spacing: -0.03em;
     }
 
     .subtitle {
-      margin: 8px 0 20px;
+      margin: 8px 0 18px;
       color: var(--muted);
       font-size: 14px;
       font-weight: 600;
@@ -89,17 +89,18 @@
     dl {
       margin: 0;
       display: grid;
-      gap: 10px;
+      gap: 8px;
       text-align: left;
     }
 
     div.row {
-      padding: 10px 12px;
+      padding: 11px 12px;
       display: flex;
       justify-content: space-between;
       gap: 16px;
-      border-radius: 13px;
+      border-radius: 12px;
       background: color-mix(in srgb, var(--window) 42%, transparent);
+      align-items: center;
     }
 
     dt,
@@ -115,6 +116,7 @@
     dd {
       text-align: right;
       font-weight: 700;
+      overflow-wrap: anywhere;
     }
   </style>
 </head>
