@@ -39,6 +39,7 @@ const AUTHOR_NAME = 'No.zomu';
 const CONTACT_EMAIL = 'SeaRoach@proton.me';
 const QQ_GROUP = '1022215649';
 const GITHUB_REPO = 'https://github.com/KaguraMatsuri/MT-Aigis';
+const UPDATE_FEED_URL = `${GITHUB_REPO}/releases/latest/download`;
 const THEME_COLORS = {
   dark: '#101011',
   light: '#f2f2f7',
@@ -199,6 +200,12 @@ log.initialize();
 autoUpdater.logger = log;
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+if (app.isPackaged) {
+  autoUpdater.setFeedURL({
+    provider: 'generic',
+    url: UPDATE_FEED_URL,
+  });
+}
 
 function debugLog(...parts) {
   try {
@@ -283,7 +290,7 @@ function showAboutDialog() {
     fullscreenable: false,
     title: appText('aboutTitle'),
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 18 },
+    trafficLightPosition: { x: 18, y: 14 },
     backgroundColor: gameFillColor(),
     parent: mainWindow || undefined,
     modal: false,
@@ -345,6 +352,14 @@ function setUpdateState(status, message, extra = {}) {
   debugLog('update-state', updateState);
 }
 
+function formatUpdateError(error) {
+  const message = error && error.message ? error.message : String(error || '');
+  if (/releases\.atom/i.test(message) || /latest-mac\.yml/i.test(message) || /\b404\b/.test(message)) {
+    return '未找到可用更新。请先在 GitHub Releases 发布版本，并上传 latest-mac.yml、zip 与 dmg 安装包。';
+  }
+  return message;
+}
+
 function setupAutoUpdater() {
   autoUpdater.on('checking-for-update', () => setUpdateState('checking', appText('updateChecking')));
   autoUpdater.on('update-available', (info) => {
@@ -364,8 +379,9 @@ function setupAutoUpdater() {
     });
   });
   autoUpdater.on('error', (error) => {
-    setUpdateState('error', error && error.message ? error.message : String(error), {
-      error: error && error.message ? error.message : String(error),
+    const message = formatUpdateError(error);
+    setUpdateState('error', message, {
+      error: message,
     });
   });
 }
@@ -376,8 +392,9 @@ function checkForUpdates(manual) {
     return Promise.resolve(updateState);
   }
   return autoUpdater.checkForUpdatesAndNotify().then(() => updateState).catch((error) => {
-    setUpdateState('error', error && error.message ? error.message : String(error), {
-      error: error && error.message ? error.message : String(error),
+    const message = formatUpdateError(error);
+    setUpdateState('error', message, {
+      error: message,
     });
     if (manual) {
       dialog.showErrorBox('MT-Aigis Update', updateState.message);

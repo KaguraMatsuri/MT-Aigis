@@ -80,9 +80,8 @@
     },
     "publish": [
       {
-        "provider": "github",
-        "owner": "KaguraMatsuri",
-        "repo": "MT-Aigis"
+        "provider": "generic",
+        "url": "https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download"
       }
     ]
   },
