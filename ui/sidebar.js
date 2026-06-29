@@ -28,7 +28,7 @@
       settingsKicker: '偏好设置',
       updateKicker: '更新',
       aboutKicker: '关于',
-      scrollResponse: '滚轮响应',
+      scrollResponse: '滚动',
       network: '连接状态',
       testConnection: '连接测试',
       exitIp: '出口 IP',
@@ -60,7 +60,7 @@
       clearAgain: '再次点击确认退出登录',
       cookiesCleared: 'Cookies 已清除',
       cacheClearedButton: '已清除',
-      scrollSaved: '滚轮响应已调整',
+      scrollSaved: '滚动已调整',
       languageSaved: '语言已保存',
       starting: '正在启动',
       loading: '加载中',
@@ -82,7 +82,7 @@
       readFailed: '读取失败',
       vaultMissing: '密码库未创建',
       vaultSaved: '密码库已保存',
-      vaultCreate: '点击编辑开始保存。',
+      vaultCreate: '点击编辑按钮开始编辑。',
       vaultCopy: '点击隐藏内容即可复制。',
       editing: '正在编辑',
       emailLogin: '邮箱 / Login ID',
@@ -111,7 +111,7 @@
       settingsKicker: 'Preferences',
       updateKicker: 'Update',
       aboutKicker: 'About',
-      scrollResponse: 'Wheel',
+      scrollResponse: 'Scroll',
       network: 'Network',
       testConnection: 'Test',
       exitIp: 'Exit IP',
@@ -143,7 +143,7 @@
       clearAgain: 'Click again to sign out',
       cookiesCleared: 'Cookies cleared',
       cacheClearedButton: 'Cleared',
-      scrollSaved: 'Wheel response saved',
+      scrollSaved: 'Scroll setting saved',
       languageSaved: 'Language saved',
       starting: 'Starting',
       loading: 'Loading',
@@ -165,7 +165,7 @@
       readFailed: 'Read failed',
       vaultMissing: 'Vault not created',
       vaultSaved: 'Vault saved',
-      vaultCreate: 'Click Edit to save.',
+      vaultCreate: 'Click Edit to start editing.',
       vaultCopy: 'Click a hidden value to copy.',
       editing: 'Editing',
       emailLogin: 'Email / Login ID',
@@ -194,7 +194,7 @@
       settingsKicker: '設定',
       updateKicker: 'アップデート',
       aboutKicker: '情報',
-      scrollResponse: 'ホイール',
+      scrollResponse: 'スクロール',
       network: '接続状態',
       testConnection: 'テスト',
       exitIp: '出口 IP',
@@ -226,7 +226,7 @@
       clearAgain: '再クリックでログアウト',
       cookiesCleared: 'Cookies を消去しました',
       cacheClearedButton: '消去済み',
-      scrollSaved: 'ホイール応答を保存しました',
+      scrollSaved: 'スクロール設定を保存しました',
       languageSaved: '言語を保存しました',
       starting: '起動中',
       loading: '読み込み中',
@@ -248,7 +248,7 @@
       readFailed: '読み取り失敗',
       vaultMissing: 'パスワード未作成',
       vaultSaved: 'パスワード保存済み',
-      vaultCreate: '編集を押して保存します。',
+      vaultCreate: '編集ボタンを押すと編集できます。',
       vaultCopy: '非表示の項目をクリックしてコピーします。',
       editing: '編集中',
       emailLogin: 'メール / Login ID',
@@ -418,6 +418,13 @@
   }
 
   function updateTotpProgress() {
+    var currentCode = (byId('secret-twofa').textContent || '').trim();
+    if (!currentCode || currentCode === '-') {
+      byId('totp-progress').style.width = '0%';
+      byId('totp-progress').parentElement.classList.add('hidden');
+      return;
+    }
+    byId('totp-progress').parentElement.classList.remove('hidden');
     var remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
     byId('totp-progress').style.width = Math.round((remaining / 30) * 100) + '%';
   }
