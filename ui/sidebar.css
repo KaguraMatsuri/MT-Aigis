@@ -67,6 +67,14 @@ input {
   font: inherit;
 }
 
+input,
+textarea,
+select {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
 button {
   border: 0;
   cursor: pointer;

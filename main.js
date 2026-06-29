@@ -620,8 +620,9 @@ function createWindow() {
   ]) {
     mainWindow.on(eventName, updateLayout);
   }
-  mainWindow.webContents.on('before-input-event', handleBeforeInputEvent);
-  mainWindow.webContents.on('context-menu', (event) => event.preventDefault());
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    forwardNativeEditShortcut(mainWindow.webContents, input);
+  });
   mainWindow.on('closed', () => {
     clearFocusTimers();
     layoutPending = false;
@@ -653,7 +654,21 @@ function createGameView() {
   gameView.webContents.setUserAgent(CHROME_UA);
   gameView.webContents.setBackgroundThrottling(false);
   gameView.setBackgroundColor(gameFillColor());
-  gameView.webContents.insertCSS('*{user-select:none!important;-webkit-user-select:none!important;-webkit-touch-callout:none!important}::selection{background:transparent}');
+  gameView.webContents.insertCSS(`
+    :not(input):not(textarea):not([contenteditable="true"]) {
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      -webkit-touch-callout: none !important;
+    }
+    input,
+    textarea,
+    [contenteditable="true"] {
+      user-select: text !important;
+      -webkit-user-select: text !important;
+      -webkit-touch-callout: default !important;
+    }
+    ::selection { background: Highlight !important; color: HighlightText !important; }
+  `);
 
   gameView.webContents.on('did-frame-finish-load', (event, isMainFrame, frameProcessId, frameRoutingId) => {
     try {
@@ -724,8 +739,10 @@ function createGameView() {
     .catch(() => {});
 
   attachNavigationHandlers();
-  gameView.webContents.on('before-input-event', handleBeforeInputEvent);
-  gameView.webContents.on('context-menu', (event) => event.preventDefault());
+  gameView.webContents.on('before-input-event', (event, input) => {
+    forwardNativeEditShortcut(gameView.webContents, input);
+    handleBeforeInputEvent(event, input);
+  });
   updateLayout(false);
   initializeGameSession();
 }
@@ -956,6 +973,24 @@ function handleBeforeInputEvent(event, input) {
   } else if (key === '0') {
     event.preventDefault();
     setZoomFactor(1);
+  }
+}
+
+function forwardNativeEditShortcut(targetWebContents, input) {
+  if (!targetWebContents || targetWebContents.isDestroyed()) return;
+  if (!input || input.type !== 'keyDown' || (!input.control && !input.meta)) return;
+  const key = (input.key || '').toLowerCase();
+  if (key === 'v') {
+    targetWebContents.paste();
+  } else if (key === 'c') {
+    targetWebContents.copy();
+  } else if (key === 'x') {
+    targetWebContents.cut();
+  } else if (key === 'a') {
+    targetWebContents.selectAll();
+  } else if (key === 'z') {
+    if (input.shift) targetWebContents.redo();
+    else targetWebContents.undo();
   }
 }
 
