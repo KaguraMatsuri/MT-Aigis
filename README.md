@@ -15,3 +15,6 @@ English | Chinese
 [功能] 密码库: 侧边栏中, 可手动键入 E-mail 与 Password / TOTP, 并点击自动复制.  
 [功能] 缓存 / Cookies 统计与清理.  
 [功能] 监测出口 IP, 提供对不同域名的 Ping 检测功能.  
+[规划更新] 自定义代理. 自动点击器. 指针灵敏度. 密码自动填充. 更现代化的GUI.
+
+如果提示软件已损坏, 请执行: xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
