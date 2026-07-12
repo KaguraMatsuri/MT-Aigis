@@ -65,7 +65,6 @@
     },
     "dmg": {
       "title": "MT-Aigis",
-      "icon": "resources/MT-Aigis.icns",
       "backgroundColor": "#d8d8dc",
       "window": {
         "width": 720,
