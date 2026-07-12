@@ -1,11 +1,12 @@
 {
   "name": "mt-aigis",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "No.zomu",
   "license": "LicenseRef-MT-Aigis-Personal-Use-1.0",
   "description": "千年战争Aigis macOS Client",
   "main": "main.js",
   "scripts": {
+    "test": "node --test test/*.test.js",
     "start": "electron .",
     "dist:mac": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --mac --arm64",
     "dist:dir": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --dir --mac --arm64 -c.mac.identity=null"
@@ -45,7 +46,7 @@
     "mac": {
       "category": "public.app-category.games",
       "icon": "resources/MT-Aigis.icon",
-      "bundleVersion": "1.0.0.0",
+      "bundleVersion": "1.0.0.1",
       "executableName": "MT-Aigis",
       "target": [
         {
