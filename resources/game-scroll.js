@@ -2,6 +2,9 @@
   'use strict';
 
   if (window.__MT_AIGIS_SCROLL__) {
+    if (typeof window.__MT_AIGIS_SCROLL__.applyBaseline === 'function') {
+      window.__MT_AIGIS_SCROLL__.applyBaseline();
+    }
     return { ...window.__MT_AIGIS_SCROLL__.status(), fresh: false };
   }
 
@@ -20,6 +23,26 @@
   let originalEvents = 0;
   let normalizedEvents = 0;
 
+  function frameLayout() {
+    const root = document.documentElement;
+    const body = document.body;
+    const dimension = (property) => Math.max(
+      Number(root && root[property]) || 0,
+      Number(body && body[property]) || 0
+    );
+    const overflow = (element) => element && element.style
+      ? element.style.getPropertyValue('overflow')
+      : '';
+    return {
+      clientWidth: dimension('clientWidth'),
+      clientHeight: dimension('clientHeight'),
+      scrollWidth: dimension('scrollWidth'),
+      scrollHeight: dimension('scrollHeight'),
+      htmlOverflow: overflow(root),
+      bodyOverflow: overflow(body),
+    };
+  }
+
   function applyFrameBaseline() {
     for (const element of [document.documentElement, document.body]) {
       if (!element) continue;
@@ -27,7 +50,11 @@
       element.style.setProperty('padding', '0', 'important');
       element.style.setProperty('background-color', '#000', 'important');
       element.style.setProperty('overscroll-behavior', 'none', 'important');
+      element.style.setProperty('overflow', 'hidden', 'important');
     }
+    try {
+      window.scrollTo(0, 0);
+    } catch (_) {}
   }
 
   function resetSoon() {
@@ -103,6 +130,7 @@
   document.addEventListener('mousewheel', normalizeScroll, { capture: true, passive: false });
 
   window.__MT_AIGIS_SCROLL__ = {
+    applyBaseline: applyFrameBaseline,
     status() {
       return {
         installed: true,
@@ -111,6 +139,7 @@
         normalizedEvents,
         level,
         interval: PROFILES[level].interval,
+        layout: frameLayout(),
       };
     },
     setLevel(value) {
