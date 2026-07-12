@@ -17,6 +17,7 @@ test('uses the official compiled macOS Icon asset', () => {
   ));
 
   assert.equal(packageJson.build.mac.icon, 'resources/MT-Aigis.icon');
+  assert.equal(packageJson.build.dmg.icon, undefined);
   assert.ok(fs.existsSync(path.join(root, 'resources', 'MT-Aigis.icon', 'icon.json')));
   assert.ok(fs.existsSync(path.join(root, 'resources', 'Assets.car')));
   assert.ok(assetInfo.some((asset) => asset.Name === 'Icon' && asset['AssetType'] === 'Icon Image'));
