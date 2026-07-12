@@ -36,6 +36,6 @@ module.exports = async function afterPack(context) {
   } catch {}
 
   if (fs.existsSync(bundledAssets) && !iconName) {
-    execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIconName', '-string', 'AppIcon', plistPath]);
+    execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIconName', '-string', 'Icon', plistPath]);
   }
 };
