@@ -34,3 +34,9 @@ test('keeps the 1.0.0.1 display and bundle version aligned', () => {
   assert.match(read('ui/index.html'), /about-version">1\.0\.0\.1</);
   assert.match(read('ui/about.html'), /version-value">1\.0\.0\.1</);
 });
+
+test('builds releases without requiring an unavailable Xcode 26 actool', () => {
+  const releaseWorkflow = read('.github/workflows/release.yml');
+
+  assert.match(releaseWorkflow, /-c\.mac\.icon=resources\/icon\.png/);
+});
