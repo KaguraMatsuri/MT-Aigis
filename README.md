@@ -4,6 +4,8 @@ English | Chinese
 千年战争Aigis client for macOS  
 为 macOS 26 / 27 定制与适配的 千年战争Aigis游戏客户端. 
 (同样适配于 macOS 15 *更低版本未经测试 *Intel Mac未经测试)  
+! - ! 有啥事随时在NGA/贴吧/QQ(1283962190) 叫我就行, 长期在公司摸鱼
+
   
 主要功能:  
 [适配] 滚动逻辑: 默认, 在 macOS 下, 对游戏进行滚动操作时, 游戏页面会进行高速的多页滚动. MT-Aigis 对此进行了修复, 同时给予可调整的滚动选项.  
