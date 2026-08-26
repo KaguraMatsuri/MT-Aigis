@@ -25,18 +25,37 @@ test('uses the official compiled macOS Icon asset', () => {
   assert.match(afterPack, /CFBundleIconName', '-string', 'Icon'/);
 });
 
-test('keeps the 1.0.0.1 display and bundle version aligned', () => {
+test('keeps the 1.1.0 display and bundle version aligned', () => {
   const packageJson = JSON.parse(read('package.json'));
 
-  assert.equal(packageJson.version, '1.0.1');
-  assert.equal(packageJson.build.mac.bundleVersion, '1.0.0.1');
-  assert.match(read('main.js'), /APP_DISPLAY_VERSION = '1\.0\.0\.1'/);
-  assert.match(read('ui/index.html'), /about-version">1\.0\.0\.1</);
-  assert.match(read('ui/about.html'), /version-value">1\.0\.0\.1</);
+  assert.equal(packageJson.version, '1.1.0');
+  assert.equal(packageJson.build.mac.bundleVersion, '1.1.0');
+  assert.match(read('main.js'), /APP_DISPLAY_VERSION = '1\.1\.0'/);
+  assert.match(read('ui/index.html'), /about-version">1\.1\.0</);
+  assert.match(read('ui/about.html'), /version-value">1\.1\.0</);
+});
+
+test('keeps the QQ contact aligned across both about views', () => {
+  assert.match(read('main.js'), /QQ_GROUP = '1283962190'/);
+  assert.match(read('ui/index.html'), /data-copy="1283962190"/);
+  assert.match(read('ui/about.html'), /qq-value">1283962190</);
 });
 
 test('builds releases without requiring an unavailable Xcode 26 actool', () => {
+  const packageJson = JSON.parse(read('package.json'));
   const releaseWorkflow = read('.github/workflows/release.yml');
+  const targets = packageJson.build.mac.target.map((entry) => ({
+    target: entry.target,
+    arch: entry.arch,
+  }));
 
+  assert.deepEqual(targets, [
+    { target: 'dmg', arch: ['arm64'] },
+    { target: 'zip', arch: ['arm64'] },
+  ]);
   assert.match(releaseWorkflow, /-c\.mac\.icon=resources\/icon\.png/);
+  assert.match(releaseWorkflow, /dist\/\*\.dmg/);
+  assert.match(releaseWorkflow, /dist\/\*\.zip/);
+  assert.match(releaseWorkflow, /dist\/latest-mac\.yml/);
+  assert.match(read('main.js'), /matchesSha512\(digest\.digest\('base64'\), manifest\.dmg\.sha512\)/);
 });

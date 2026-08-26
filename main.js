@@ -8,7 +8,6 @@ const {
   shell,
   nativeImage,
   nativeTheme,
-  dialog,
 } = require('electron');
 const log = require('electron-log/main');
 const crypto = require('crypto');
@@ -29,6 +28,11 @@ const {
   isWebUrl,
   normalizeCustomUrl,
 } = require('./lib/navigation');
+const {
+  getUpdateSeed,
+  matchesSha512,
+  normalizeGithubRelease,
+} = require('./lib/update-notification');
 const {
   buildGameNewsDiskCache,
   GAME_NEWS_LIST_URL,
@@ -55,11 +59,12 @@ const GAME_URL = DEFAULT_URL;
 const ZOOM_STEP = 0.1;
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.5;
-const APP_DISPLAY_VERSION = '1.0.0.1';
+const APP_DISPLAY_VERSION = '1.1.0';
 const AUTHOR_NAME = 'No.zomu';
 const CONTACT_EMAIL = 'SeaRoach@proton.me';
-const QQ_GROUP = '1022215649';
+const QQ_GROUP = '1283962190';
 const GITHUB_REPO = 'https://github.com/KaguraMatsuri/MT-Aigis';
+const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/KaguraMatsuri/MT-Aigis/releases/latest';
 const UPDATE_MANIFEST_URL = `${GITHUB_REPO}/releases/latest/download/latest-mac.yml`;
 const GAME_NEWS_CACHE_MS = 30 * 60 * 1000;
 const GAME_NEWS_LIMIT = 3;
@@ -120,17 +125,19 @@ const APP_TEXT = {
     aboutTitle: '关于 MT-Aigis',
     subtitle: '千年战争Aigis macOS Client',
     contact: '联系方式',
-    qq: '腾讯 QQ 群',
+    qq: 'QQ',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '准备就绪',
     updateChecking: '检查中',
-    updateAvailable: '检测到更新，正在下载',
+    updateAvailable: '发现新版本 {version}',
     updateDownloadingPercent: '正在下载 {percent}%...',
     updateCurrent: '未检测到更新',
+    updateDeferred: '已暂缓本次更新',
     updateOpening: '正在打开安装器',
     updateOpened: '安装器已打开',
     updateFailed: '更新失败',
-    updateDev: '当前版本不检查更新',
+    updateSeedShown: '已显示 Seed 更新通知',
+    updateSeedDownload: '已验证 Seed 下载操作（开发版未下载安装）',
   },
   en: {
     aboutMenu: 'About MT-Aigis',
@@ -138,17 +145,19 @@ const APP_TEXT = {
     aboutTitle: 'About MT-Aigis',
     subtitle: '千年戦争アイギス macOS Client',
     contact: 'Contact',
-    qq: 'Tencent QQ Server',
+    qq: 'QQ',
     copyright: `Author ${AUTHOR_NAME}`,
     ready: 'Ready',
     updateChecking: 'Checking',
-    updateAvailable: 'Update found. Downloading',
+    updateAvailable: 'Version {version} is available',
     updateDownloadingPercent: 'Downloading {percent}%...',
     updateCurrent: 'No update found',
+    updateDeferred: 'Update postponed for this launch',
     updateOpening: 'Opening installer',
     updateOpened: 'Installer opened',
     updateFailed: 'Update failed',
-    updateDev: 'Updates are disabled here',
+    updateSeedShown: 'Seed update notice shown',
+    updateSeedDownload: 'Seed download action verified (nothing was downloaded in development)',
   },
   ja: {
     aboutMenu: 'MT-Aigis について',
@@ -156,17 +165,19 @@ const APP_TEXT = {
     aboutTitle: 'MT-Aigis について',
     subtitle: '千年戦争アイギス macOS Client',
     contact: '連絡先',
-    qq: 'Tencent QQ Server',
+    qq: 'QQ',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '準備完了',
     updateChecking: '確認中',
-    updateAvailable: '更新を検出。ダウンロード中',
+    updateAvailable: '新しいバージョン {version} があります',
     updateDownloadingPercent: 'ダウンロード中 {percent}%...',
     updateCurrent: '更新はありません',
+    updateDeferred: '今回の更新を延期しました',
     updateOpening: 'インストーラを開いています',
     updateOpened: 'インストーラを開きました',
     updateFailed: '更新に失敗しました',
-    updateDev: 'この環境では更新を確認しません',
+    updateSeedShown: 'Seed 更新通知を表示しました',
+    updateSeedDownload: 'Seed のダウンロード操作を確認しました（開発版では未実行）',
   },
 };
 
@@ -227,6 +238,7 @@ let updateState = {
   error: '',
 };
 let updateDownloadTask = null;
+let updatePrompt = null;
 let gameNewsCache = { items: [], fetchedAt: 0 };
 let gameNewsTask = null;
 const gameNewsDetailCache = new Map();
@@ -536,6 +548,49 @@ async function readLatestManifest() {
   };
 }
 
+async function readLatestGithubRelease(manifestVersion = '') {
+  const response = await fetch(GITHUB_RELEASE_API_URL, {
+    redirect: 'follow',
+    headers: {
+      'user-agent': CHROME_UA,
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub release HTTP ${response.status}`);
+  }
+  return normalizeGithubRelease(await response.json(), manifestVersion);
+}
+
+function showUpdateNotification(release) {
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve('later');
+  return new Promise((resolve) => {
+    updatePrompt = { release, resolve };
+    setGameViewAttached(false);
+    sendToRenderer('update:prompt', release);
+  });
+}
+
+async function showSeedUpdateNotification() {
+  try {
+    await readLatestGithubRelease();
+  } catch (error) {
+    debugLog('github-release-check-error', error && error.message ? error.message : String(error));
+  }
+  const seed = getUpdateSeed(effectiveLanguage());
+  setUpdateState('seed', appText('updateAvailable', { version: seed.displayVersion }), {
+    version: seed.version,
+    release: seed,
+  });
+  const action = await showUpdateNotification(seed);
+  setUpdateState('dev', appText(action === 'install' ? 'updateSeedDownload' : 'updateSeedShown'), {
+    version: seed.version,
+    release: seed,
+  });
+  return updateState;
+}
+
 async function downloadUpdateDmg(manifest) {
   const version = manifest.version || 'latest';
   const updateDir = path.join(app.getPath('downloads') || path.join(os.homedir(), 'Downloads'), 'MT-Aigis Updates');
@@ -546,17 +601,23 @@ async function downloadUpdateDmg(manifest) {
   const total = Number.parseInt(response.headers.get('content-length') || '', 10) || manifest.dmg.size || 0;
   const reader = response.body.getReader();
   const stream = fs.createWriteStream(tempPath);
+  const digest = crypto.createHash('sha512');
   let received = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       received += value.length;
-      stream.write(Buffer.from(value));
+      const chunk = Buffer.from(value);
+      digest.update(chunk);
+      stream.write(chunk);
       const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
       setUpdateState('downloading', appText('updateDownloadingPercent', { percent }), { version });
     }
     await new Promise((resolve, reject) => stream.end((error) => error ? reject(error) : resolve()));
+    if (!matchesSha512(digest.digest('base64'), manifest.dmg.sha512)) {
+      throw new Error('update checksum mismatch');
+    }
     fs.renameSync(tempPath, finalPath);
     return finalPath;
   } catch (error) {
@@ -583,29 +644,54 @@ function setupAutoUpdater() {
   return true;
 }
 
-function checkForUpdates(manual) {
-  if (!app.isPackaged) {
-    setUpdateState('dev', appText('updateDev'));
-    return Promise.resolve(updateState);
-  }
+function checkForUpdates() {
   if (updateDownloadTask) return updateDownloadTask;
-  setUpdateState('checking', appText('updateChecking'));
-  updateDownloadTask = readLatestManifest()
-    .then((manifest) => {
+  setUpdateState('checking', appText('updateChecking'), { version: '', release: null });
+  if (!app.isPackaged) {
+    updateDownloadTask = showSeedUpdateNotification()
+      .finally(() => {
+        updateDownloadTask = null;
+      });
+    return updateDownloadTask;
+  }
+
+  updateDownloadTask = Promise.all([
+    readLatestManifest(),
+    readLatestGithubRelease().catch((error) => {
+      debugLog('github-release-check-error', error && error.message ? error.message : String(error));
+      return null;
+    }),
+  ])
+    .then(async ([manifest, githubRelease]) => {
       if (compareVersions(manifest.version, appVersionValue()) <= 0) {
-        setUpdateState('current', appText('updateCurrent'));
+        setUpdateState('current', appText('updateCurrent'), { version: '', release: null });
         return updateState;
       }
-      setUpdateState('available', appText('updateAvailable'), { version: manifest.version });
-      return downloadUpdateDmg(manifest).then(openInstallerAndQuit);
+      const release = githubRelease && compareVersions(githubRelease.version, manifest.version) === 0
+        ? { ...githubRelease, version: manifest.version }
+        : normalizeGithubRelease({}, manifest.version);
+      setUpdateState('available', appText('updateAvailable', { version: release.displayVersion }), {
+        version: manifest.version,
+        release,
+      });
+      const action = await showUpdateNotification(release);
+      if (action === 'install') {
+        return downloadUpdateDmg(manifest).then(openInstallerAndQuit);
+      }
+      setUpdateState('deferred', appText('updateDeferred'), {
+        version: manifest.version,
+        release,
+      });
+      return updateState;
     })
     .catch((error) => {
       const message = formatUpdateError(error);
       const status = message === appText('updateCurrent') ? 'current' : 'error';
-      setUpdateState(status, message, { error: message });
-      if (manual && status === 'error') {
-        dialog.showErrorBox('MT-Aigis', message);
-      }
+      setUpdateState(status, message, {
+        version: '',
+        release: null,
+        error: status === 'error' ? message : '',
+      });
       return updateState;
     })
     .finally(() => {
@@ -702,6 +788,10 @@ function createWindow() {
     clearFocusTimers();
     layoutPending = false;
     gameViewAttached = false;
+    if (updatePrompt) {
+      updatePrompt.resolve('later');
+      updatePrompt = null;
+    }
     if (gameView && !gameView.webContents.isDestroyed()) {
       gameView.webContents.close();
     }
@@ -782,8 +872,16 @@ function createGameView() {
     delete details.requestHeaders['X-Requested-With'];
     callback({ requestHeaders: details.requestHeaders });
   });
-  gameSession.webRequest.onCompleted({ urls: ['https://play.games.dmm.com/*', 'https://artemis.games.dmm.com/*', 'https://accounts.dmm.com/*'] }, (details) => {
-    if (details.resourceType === 'mainFrame' || details.url.includes('artemis.games.dmm.com/')) {
+  const sessionLogUrls = [
+    'https://play.games.dmm.com/*',
+    'https://play.games.dmm.co.jp/*',
+    'https://artemis.games.dmm.com/*',
+    'https://artemis.games.dmm.co.jp/*',
+    'https://accounts.dmm.com/*',
+    'https://accounts.dmm.co.jp/*',
+  ];
+  gameSession.webRequest.onCompleted({ urls: sessionLogUrls }, (details) => {
+    if (details.resourceType === 'mainFrame' || details.url.includes('artemis.games.dmm.')) {
       debugLog('request-completed', {
         statusCode: details.statusCode,
         method: details.method,
@@ -793,7 +891,7 @@ function createGameView() {
     }
     if (
       details.statusCode === 200 &&
-      details.url.includes('artemis.games.dmm.com/member/pc/init-game-frame/aigisc')
+      details.url.includes('/member/pc/init-game-frame/aigis')
     ) {
       navigationMode = 'game';
       scheduleSessionFlush('game-ready');
@@ -805,7 +903,7 @@ function createGameView() {
       });
     }
   });
-  gameSession.webRequest.onErrorOccurred({ urls: ['https://play.games.dmm.com/*', 'https://artemis.games.dmm.com/*', 'https://accounts.dmm.com/*'] }, (details) => {
+  gameSession.webRequest.onErrorOccurred({ urls: sessionLogUrls }, (details) => {
     debugLog('request-error', {
       error: details.error,
       method: details.method,
@@ -1699,10 +1797,25 @@ ipcMain.handle('language:set', (_, language) => {
 });
 
 ipcMain.handle('update:check', () => {
-  return checkForUpdates(true);
+  return checkForUpdates();
 });
 
 ipcMain.handle('update:state', () => updateState);
+
+ipcMain.handle('update:respond', (event, action) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id ||
+    !updatePrompt
+  ) return false;
+  const response = action === 'install' ? 'install' : 'later';
+  const pending = updatePrompt;
+  updatePrompt = null;
+  pending.resolve(response);
+  setGameViewAttached(true);
+  return true;
+});
 
 ipcMain.handle('copy:text', (_, value) => {
   clipboard.writeText(String(value || ''));
@@ -1974,7 +2087,7 @@ app.whenReady().then(() => {
   updateNativeAppearance();
   nativeTheme.on('updated', updateNativeAppearance);
   createWindow();
-  setTimeout(() => checkForUpdates(false), 3000);
+  setTimeout(() => checkForUpdates(), 3000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

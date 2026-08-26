@@ -209,16 +209,16 @@
         <section class="card about-card">
           <p class="card-kicker" data-i18n="aboutKicker">关于</p>
           <h2>MT-Aigis</h2>
-          <p><span data-i18n="version">版本</span>: <strong id="about-version">1.0.0.1</strong></p>
+          <p><span data-i18n="version">版本</span>: <strong id="about-version">1.1.0</strong></p>
           <p><span data-i18n="author">作者</span>: <strong id="about-author">No.zomu</strong></p>
           <button class="copy-line" data-copy="SeaRoach@proton.me">
             <span data-i18n="contact">联系方式</span>
             <strong>SeaRoach@proton.me</strong>
           </button>
           <p data-i18n="gameName">千年战争 Aigis</p>
-          <button class="copy-line" data-copy="1022215649">
-            <span id="qq-label">腾讯 QQ 群</span>
-            <strong>1022215649</strong>
+          <button class="copy-line" data-copy="1283962190">
+            <span id="qq-label">QQ</span>
+            <strong>1283962190</strong>
           </button>
           <p class="runtime" id="settings-message"></p>
         </section>
@@ -243,6 +243,22 @@
     <div class="update-dialog-actions">
       <button id="btn-news-close" class="control" type="button" data-i18n="newsClose">关闭</button>
       <button id="btn-news-open" class="control primary" type="button" data-i18n="newsVisitOfficial">前往官网</button>
+    </div>
+  </dialog>
+
+  <dialog id="update-dialog" class="update-dialog" aria-labelledby="update-dialog-title" aria-describedby="update-dialog-notes">
+    <div class="update-dialog-head">
+      <span class="update-dialog-mark" aria-hidden="true">↑</span>
+      <div>
+        <p class="update-dialog-kicker" data-i18n="nextUpdate">下个版本</p>
+        <h2 id="update-dialog-title">MT-Aigis</h2>
+      </div>
+      <span id="update-dialog-version" class="update-version">Seed</span>
+    </div>
+    <div id="update-dialog-notes" class="update-notes"></div>
+    <div class="update-dialog-actions">
+      <button id="btn-update-later" class="control" type="button" data-i18n="updateLater">稍后</button>
+      <button id="btn-update-download" class="control primary" type="button" data-i18n="downloadUpdate">下载更新</button>
     </div>
   </dialog>
 

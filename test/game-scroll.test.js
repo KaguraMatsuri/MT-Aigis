@@ -36,9 +36,10 @@ function createElement(dimensions) {
   };
 }
 
-function createHarness() {
+function createHarness(options = {}) {
   const listeners = new Map();
   const scrollCalls = [];
+  const parsedUrl = new URL(options.url || 'https://osapi.dmm.com/gadgets/ifr');
   const documentElement = createElement({
     clientWidth: 960,
     clientHeight: 640,
@@ -51,6 +52,8 @@ function createHarness() {
     scrollWidth: 970,
     scrollHeight: 8000,
   });
+  const canvas = createElement({});
+  const mainFrame = createElement({});
   const document = {
     body,
     documentElement,
@@ -61,6 +64,12 @@ function createHarness() {
     },
     elementFromPoint() {
       return body;
+    },
+    getElementById(id) {
+      if (!options.withAigisSurface) return null;
+      if (id === 'canvas') return canvas;
+      if (id === 'main_frame') return mainFrame;
+      return null;
     },
   };
   const window = {
@@ -78,7 +87,12 @@ function createHarness() {
     clearTimeout,
     console,
     document,
-    location: { href: 'https://osapi.dmm.com/gadgets/ifr' },
+    location: {
+      href: parsedUrl.href,
+      hostname: parsedUrl.hostname,
+      pathname: parsedUrl.pathname,
+      protocol: parsedUrl.protocol,
+    },
     performance: { now: () => 0 },
     setTimeout,
     window,
@@ -86,6 +100,7 @@ function createHarness() {
 
   return {
     body,
+    canvas,
     documentElement,
     listenerCount(type) {
       return (listeners.get(type) || []).length;
@@ -93,6 +108,7 @@ function createHarness() {
     run() {
       return vm.runInContext(adapterSource, context);
     },
+    mainFrame,
     scrollCalls,
     window,
   };
@@ -120,6 +136,28 @@ test('normalizes an oversized game document when installed', () => {
     htmlOverflow: 'hidden',
     bodyOverflow: 'hidden',
   });
+});
+
+test('aligns each 960px game surface with its clipped 970px launcher frame', async (t) => {
+  for (const launcher of ['aigis.html', 'aigis_all.html']) {
+    await t.test(launcher, () => {
+      const harness = createHarness({
+        url: `https://drc1bk94f7rq8.cloudfront.net/00/html/${launcher}`,
+        withAigisSurface: true,
+      });
+
+      harness.run();
+
+      for (const element of [harness.canvas, harness.mainFrame]) {
+        assert.equal(element.style.getPropertyValue('display'), 'block');
+        assert.equal(element.style.getPropertyPriority('display'), 'important');
+        assert.equal(element.style.getPropertyValue('margin-left'), '0');
+        assert.equal(element.style.getPropertyPriority('margin-left'), 'important');
+        assert.equal(element.style.getPropertyValue('margin-right'), '0');
+        assert.equal(element.style.getPropertyPriority('margin-right'), 'important');
+      }
+    });
+  }
 });
 
 test('reapplies the baseline without duplicating input listeners', () => {

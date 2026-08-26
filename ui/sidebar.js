@@ -58,7 +58,7 @@
       author: '作者',
       contact: '联系方式',
       gameName: '千年战争Aigis macOS Client',
-      qqServer: '腾讯 QQ 群',
+      qqServer: 'QQ',
       muted: '恢复声音',
       unmuted: '静音游戏',
       ready: '准备就绪',
@@ -103,6 +103,10 @@
       saved: '已保存',
       imported: '已导入',
       loadFailed: '加载失败',
+      nextUpdate: '下个版本',
+      downloadUpdate: '下载更新',
+      updateLater: '稍后',
+      updateNotesEmpty: '本次更新未提供更新说明。',
       newsKicker: '游戏动态',
       gameNews: '更新公告',
       newsLoading: '正在获取官方公告...',
@@ -159,7 +163,7 @@
       author: 'Author',
       contact: 'Contact',
       gameName: '千年戦争アイギス macOS Client',
-      qqServer: 'Tencent QQ Server',
+      qqServer: 'QQ',
       muted: 'Unmute',
       unmuted: 'Mute Game',
       ready: 'Ready',
@@ -204,6 +208,10 @@
       saved: 'Saved',
       imported: 'Imported',
       loadFailed: 'Load failed',
+      nextUpdate: 'Next Version',
+      downloadUpdate: 'Download Update',
+      updateLater: 'Later',
+      updateNotesEmpty: 'No release notes were provided for this update.',
       newsKicker: 'Game News',
       gameNews: 'Update Notices',
       newsLoading: 'Loading official notices...',
@@ -260,7 +268,7 @@
       author: '作者',
       contact: '連絡先',
       gameName: '千年戦争アイギス macOS Client',
-      qqServer: 'Tencent QQ Server',
+      qqServer: 'QQ',
       muted: '音声を戻す',
       unmuted: 'ゲームをミュート',
       ready: '準備完了',
@@ -305,6 +313,10 @@
       saved: '保存しました',
       imported: '取り込みました',
       loadFailed: '読み込み失敗',
+      nextUpdate: '次のバージョン',
+      downloadUpdate: 'アップデートをダウンロード',
+      updateLater: '後で',
+      updateNotesEmpty: 'この更新にはリリースノートがありません。',
       newsKicker: 'ゲーム情報',
       gameNews: '更新のお知らせ',
       newsLoading: '公式のお知らせを取得中...',
@@ -751,6 +763,29 @@
     byId('update-state').textContent = state && state.message ? state.message : t('ready');
   }
 
+  function showUpdatePrompt(release) {
+    release = release || {};
+    var dialog = byId('update-dialog');
+    byId('update-dialog-title').textContent = release.title || t('nextUpdate');
+    byId('update-dialog-version').textContent = release.displayVersion || release.version || '';
+    byId('update-dialog-notes').textContent = release.notes || t('updateNotesEmpty');
+    if (!dialog.open) dialog.showModal();
+    setTimeout(function () { byId('btn-update-download').focus(); }, 0);
+  }
+
+  function respondToUpdatePrompt(action) {
+    var dialog = byId('update-dialog');
+    if (!dialog.open) return;
+    dialog.close();
+    api.invoke('update:respond', action).then(function () {
+      setTimeout(function () { warmGameViewSnapshot(true); }, 800);
+      setTimeout(function () { warmGameViewSnapshot(true); }, 3000);
+      setTimeout(function () { warmGameViewSnapshot(true); }, 6000);
+    }).catch(function (error) {
+      setRuntime(errorText(error), true);
+    });
+  }
+
   document.querySelectorAll('.tab').forEach(function (button) {
     button.addEventListener('click', function () { showPage(button.dataset.page); });
   });
@@ -808,6 +843,16 @@
   });
   byId('btn-check-update').addEventListener('click', function () {
     api.invoke('update:check').then(updateUpdateState);
+  });
+  byId('btn-update-download').addEventListener('click', function () {
+    respondToUpdatePrompt('install');
+  });
+  byId('btn-update-later').addEventListener('click', function () {
+    respondToUpdatePrompt('later');
+  });
+  byId('update-dialog').addEventListener('cancel', function (event) {
+    event.preventDefault();
+    respondToUpdatePrompt('later');
   });
   byId('btn-zoom-out').addEventListener('click', function () { api.invoke('browser:navigate', 'zoom-out').then(refreshBrowserState); });
   byId('btn-zoom-reset').addEventListener('click', function () { api.invoke('browser:navigate', 'zoom-reset').then(refreshBrowserState); });
@@ -896,6 +941,7 @@
   api.on('browser:error', function (message) { setRuntime(message || t('loadFailed'), true); });
   api.on('sidebar:state', function (state) { applySidebarState(!!state.collapsed, false); });
   api.on('update:state', updateUpdateState);
+  api.on('update:prompt', showUpdatePrompt);
 
   api.invoke('config:get').then(function (config) {
     applySidebarState(!!(config.view && config.view.sidebarCollapsed), false);

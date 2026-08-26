@@ -60,7 +60,7 @@
     const renderedWidth = GAME_WIDTH * scale;
     const renderedHeight = GAME_HEIGHT * scale;
     const left = Math.floor((viewportWidth - renderedWidth) / 2);
-    const top = Math.floor((viewportHeight - renderedHeight) / 2);
+    const top = 0;
 
     for (const element of [document.documentElement, document.body]) {
       setStyle(element, 'width', '100%');

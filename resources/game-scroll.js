@@ -9,6 +9,11 @@
   }
 
   const IDLE_RESET = 180;
+  const AIGIS_SURFACE_HOST = 'drc1bk94f7rq8.cloudfront.net';
+  const AIGIS_SURFACE_PATHS = new Set([
+    '/00/html/aigis.html',
+    '/00/html/aigis_all.html',
+  ]);
   const PROFILES = {
     1: { threshold: 34, interval: 240 },
     2: { threshold: 26, interval: 185 },
@@ -22,6 +27,25 @@
   let resetTimer = null;
   let originalEvents = 0;
   let normalizedEvents = 0;
+
+  function isAigisSurfaceDocument() {
+    return (
+      location.protocol === 'https:' &&
+      location.hostname.toLowerCase() === AIGIS_SURFACE_HOST &&
+      AIGIS_SURFACE_PATHS.has(location.pathname)
+    );
+  }
+
+  function alignAigisSurface() {
+    if (!isAigisSurfaceDocument()) return;
+    for (const id of ['canvas', 'main_frame']) {
+      const element = document.getElementById(id);
+      if (!element) continue;
+      element.style.setProperty('display', 'block', 'important');
+      element.style.setProperty('margin-left', '0', 'important');
+      element.style.setProperty('margin-right', '0', 'important');
+    }
+  }
 
   function frameLayout() {
     const root = document.documentElement;
@@ -55,6 +79,7 @@
     try {
       window.scrollTo(0, 0);
     } catch (_) {}
+    alignAigisSurface();
   }
 
   function resetSoon() {
