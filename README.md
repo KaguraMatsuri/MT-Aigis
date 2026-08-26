@@ -18,6 +18,7 @@ English | Chinese
 [功能] 缓存 / Cookies 统计与清理.  
 [功能] 监测出口 IP, 提供对不同域名的 Ping 检测功能.  
 [功能] 自动检测并提取官方公告.  
+[功能] 自定义游戏链接, 可以加载其他版本 Aigis(虽然有适配但因合规原因不建议加载Fanza版哟).  
 [规划更新] 自定义代理. 自动点击器. 指针灵敏度. 更现代化的GUI.
 
 如果提示软件已损坏, 请执行: xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
