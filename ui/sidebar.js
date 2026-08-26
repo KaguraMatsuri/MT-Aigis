@@ -5,6 +5,7 @@
   if (!api) return;
 
   var vaultState = null;
+  var customUrlEditing = false;
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
   var currentLanguage = 'zh';
@@ -22,6 +23,8 @@
       back: 'Back',
       reload: 'Reload',
       next: 'Next',
+      custom: '自定义',
+      customUrl: '链接',
       networkKicker: '网络',
       cacheKicker: '缓存',
       vaultKicker: '本地密码',
@@ -105,6 +108,8 @@
       back: 'Back',
       reload: 'Reload',
       next: 'Next',
+      custom: 'Custom',
+      customUrl: 'Link',
       networkKicker: 'Network',
       cacheKicker: 'Cache',
       vaultKicker: 'Local Passwords',
@@ -188,6 +193,8 @@
       back: 'Back',
       reload: 'Reload',
       next: 'Next',
+      custom: 'カスタム',
+      customUrl: 'リンク',
       networkKicker: 'ネットワーク',
       cacheKicker: 'キャッシュ',
       vaultKicker: 'ローカルパスワード',
@@ -319,6 +326,7 @@
       element.setAttribute('aria-label', t(element.dataset.i18nAria));
     });
     byId('qq-label').textContent = t('qqServer');
+    byId('btn-custom-url').textContent = t(customUrlEditing ? 'save' : 'custom');
     byId('runtime-message').textContent = byId('runtime-message').textContent || t('ready');
     syncMuteState(byId('btn-mute').classList.contains('muted'));
     updateScrollControl(byId('scroll-level').value || 5);
@@ -350,12 +358,31 @@
     byId('mute-label').textContent = isMuted ? t('muted') : t('unmuted');
   }
 
+  function applyCustomUrlState(state) {
+    if (!state || customUrlEditing) return;
+    byId('custom-url').value = state.homeUrl || 'https://play.games.dmm.com/game/aigisc';
+  }
+
+  function setCustomUrlEditing(editing) {
+    customUrlEditing = !!editing;
+    var input = byId('custom-url');
+    var button = byId('btn-custom-url');
+    input.readOnly = !customUrlEditing;
+    button.textContent = t(customUrlEditing ? 'save' : 'custom');
+    button.classList.toggle('primary', customUrlEditing);
+    if (customUrlEditing) {
+      input.focus();
+      input.select();
+    }
+  }
+
   function refreshBrowserState() {
     return api.invoke('browser:state').then(function (browser) {
       byId('page-title').textContent = browser.title || 'MT-Aigis';
       byId('page-url').textContent = browser.url || 'https://play.games.dmm.com/game/aigisc';
       byId('top-status').textContent = browser.loading ? t('loading') : t('gameSession');
       byId('zoom-value').textContent = Math.round((browser.zoomFactor || 1) * 100) + '%';
+      applyCustomUrlState(browser);
       syncMuteState(!!browser.audioMuted);
       updateScrollControl(browser.scrollLevel || 5);
       if (!browser.loading) {
@@ -510,6 +537,21 @@
     byId('btn-reload').classList.add('loading');
     byId('btn-reload').disabled = true;
   });
+  byId('btn-custom-url').addEventListener('click', function () {
+    if (!customUrlEditing) {
+      setCustomUrlEditing(true);
+      return;
+    }
+    api.invoke('browser:custom-url:set', byId('custom-url').value).then(function (state) {
+      customUrlEditing = false;
+      applyCustomUrlState(state);
+      setCustomUrlEditing(false);
+      setRuntime(t('saved'), false);
+      refreshBrowserState();
+    }).catch(function (error) {
+      setRuntime(errorText(error), true);
+    });
+  });
   byId('scroll-level').addEventListener('input', function () {
     updateScrollControl(this.value);
   });
@@ -612,6 +654,9 @@
     updateScrollControl(config.view && config.view.scrollLevel || 5);
     byId('language-select').value = config.view && config.view.language || 'auto';
     applyLanguage(config.view && config.view.effectiveLanguage || 'zh');
+    applyCustomUrlState({
+      homeUrl: config.view && config.view.customUrl || 'https://play.games.dmm.com/game/aigisc',
+    });
     if (config.app) {
       byId('about-version').textContent = config.app.version;
       byId('about-author').textContent = config.app.author;

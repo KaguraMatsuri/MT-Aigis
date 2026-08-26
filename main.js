@@ -18,6 +18,12 @@ const path = require('path');
 
 const { SecureConfigStore, defaultConfig } = require('./lib/secure-config');
 const { PlainVault, emptyVault } = require('./lib/plain-vault');
+const {
+  DEFAULT_URL,
+  isAdaptedPage,
+  isWebUrl,
+  normalizeCustomUrl,
+} = require('./lib/navigation');
 
 const WINDOW_W = 1320;
 const WINDOW_H = 760;
@@ -30,7 +36,7 @@ const SIDEBAR_CLOSED_WIDTH = 44;
 const VIEW_PARTITION = 'persist:mt-aigis-view';
 const CHROME_VERSION = process.versions.chrome || '144.0.0.0';
 const CHROME_UA = `Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
-const GAME_URL = 'https://play.games.dmm.com/game/aigisc';
+const GAME_URL = DEFAULT_URL;
 const ZOOM_STEP = 0.1;
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.5;
@@ -776,6 +782,7 @@ function normalizeConfig(rawConfig) {
       zoomFactor: normalizeZoomFactor(source.view && source.view.zoomFactor),
       scrollLevel: normalizeScrollLevel(source.view && source.view.scrollLevel),
       language: normalizeLanguage(source.view && source.view.language),
+      customUrl: normalizeCustomUrl(source.view && source.view.customUrl) || '',
     },
     session: {
       ...base.session,
@@ -860,7 +867,7 @@ function attachNavigationHandlers() {
       gameView.webContents.loadURL(normalized).catch(() => {});
       return;
     }
-    if (isInternalUrl(url)) return;
+    if (isInternalUrl(url) || (currentConfig.view.customUrl && isWebUrl(url))) return;
     event.preventDefault();
     shell.openExternal(url).catch(() => {});
   });
@@ -913,19 +920,15 @@ function isInternalUrl(rawUrl) {
 
 function isLoginUrl(rawUrl) {
   try {
-    return new URL(rawUrl).hostname === 'accounts.dmm.com';
+    const hostname = new URL(rawUrl).hostname;
+    return hostname === 'accounts.dmm.com' || hostname === 'accounts.dmm.co.jp';
   } catch {
     return false;
   }
 }
 
 function isGameUrl(rawUrl) {
-  try {
-    const parsed = new URL(rawUrl);
-    return parsed.hostname === 'play.games.dmm.com' && parsed.pathname === '/game/aigisc';
-  } catch {
-    return false;
-  }
+  return isAdaptedPage(rawUrl);
 }
 
 function handleMainFrameNavigation(rawUrl) {
@@ -936,7 +939,13 @@ function handleMainFrameNavigation(rawUrl) {
   }
   if (isGameUrl(rawUrl)) {
     navigationMode = 'game';
+    return;
   }
+  navigationMode = 'custom';
+}
+
+function getHomeUrl() {
+  return currentConfig.view.customUrl || GAME_URL;
 }
 
 function loadGameHome() {
@@ -945,9 +954,10 @@ function loadGameHome() {
 
 function loadDirectGame(reason) {
   if (!gameView || gameView.webContents.isDestroyed()) return;
-  navigationMode = 'game';
-  debugLog('load-game', { reason, url: GAME_URL });
-  gameView.webContents.loadURL(GAME_URL).catch((error) => {
+  const targetUrl = getHomeUrl();
+  navigationMode = isGameUrl(targetUrl) ? 'game' : 'custom';
+  debugLog('load-game', { reason, url: targetUrl });
+  gameView.webContents.loadURL(targetUrl).catch((error) => {
     debugLog('load-game-error', error && error.message ? error.message : String(error));
     sendToRenderer('browser:error', error && error.message ? error.message : String(error));
   });
@@ -1381,6 +1391,23 @@ ipcMain.handle('browser:navigate', async (_, action) => {
   return true;
 });
 
+ipcMain.handle('browser:custom-url:set', (event, rawUrl) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) throw new Error('This setting is only available in the main window.');
+  const customUrl = normalizeCustomUrl(rawUrl);
+  if (customUrl === null) throw new Error('Invalid web address.');
+  currentConfig.view.customUrl = customUrl;
+  store.save(currentConfig);
+  loadDirectGame('custom-url');
+  return {
+    customUrl,
+    homeUrl: getHomeUrl(),
+  };
+});
+
 ipcMain.handle('browser:state', async () => {
   if (!gameView || gameView.webContents.isDestroyed()) {
     return {
@@ -1395,6 +1422,8 @@ ipcMain.handle('browser:state', async () => {
       audioMuted: false,
       sidebarCollapsed,
       scrollLevel: getScrollLevel(),
+      customUrl: currentConfig.view.customUrl || '',
+      homeUrl: getHomeUrl(),
     };
   }
   return {
@@ -1409,6 +1438,8 @@ ipcMain.handle('browser:state', async () => {
     audioMuted: gameView.webContents.isAudioMuted(),
     sidebarCollapsed,
     scrollLevel: getScrollLevel(),
+    customUrl: currentConfig.view.customUrl || '',
+    homeUrl: getHomeUrl(),
   };
 });
 
