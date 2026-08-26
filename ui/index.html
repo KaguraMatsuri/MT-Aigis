@@ -18,6 +18,8 @@
     </div>
   </header>
 
+  <img id="game-view-snapshot" class="game-view-snapshot hidden" alt="" aria-hidden="true">
+
   <aside id="sidebar">
     <button id="btn-toggle-sidebar" title="折叠侧栏" aria-label="折叠侧栏">◀</button>
     <div class="sidebar-head">
@@ -58,28 +60,16 @@
           <input id="scroll-level" type="range" min="1" max="5" step="1" value="3" aria-label="游戏滚动速度" data-i18n-aria="scrollResponse">
         </div>
 
-        <section class="card">
+        <section class="card game-news-card">
           <div class="card-head">
             <div>
-              <p class="card-kicker" data-i18n="networkKicker">网络</p>
-              <h2 data-i18n="network">连接状态</h2>
+              <p class="card-kicker" data-i18n="newsKicker">游戏动态</p>
+              <h2 data-i18n="gameNews">更新公告</h2>
             </div>
-            <button id="btn-ping-all" class="link-button" data-i18n="testConnection">连接测试</button>
+            <button id="btn-refresh-news" class="link-button" data-i18n="refresh">刷新</button>
           </div>
-          <div class="network-summary">
-            <div>
-              <span class="summary-label" data-i18n="exitIp">出口 IP</span>
-              <span id="network-region" class="region-label" data-i18n="detectingRegion">检测地区中</span>
-            </div>
-            <span id="network-ip" class="mono" data-i18n="detecting">检测中</span>
-          </div>
-          <p id="network-warning" class="network-warning hidden"></p>
-          <div class="ping-list">
-            <div class="ping-row"><span>proton.me</span><span id="ping-proton" class="ping-value">-</span></div>
-            <div class="ping-row"><span>google.com</span><span id="ping-google" class="ping-value">-</span></div>
-            <div class="ping-row"><span>dmm.com</span><span id="ping-dmm" class="ping-value">-</span></div>
-            <div class="ping-row"><span>bilibili.com</span><span id="ping-bilibili" class="ping-value">-</span></div>
-          </div>
+          <p id="game-news-status" class="runtime news-status" data-i18n="newsLoading">正在获取官方公告...</p>
+          <div id="game-news-list" class="game-news-list" aria-live="polite"></div>
         </section>
 
         <section class="card">
@@ -184,6 +174,30 @@
         <section class="card">
           <div class="card-head">
             <div>
+              <p class="card-kicker" data-i18n="networkKicker">网络</p>
+              <h2 data-i18n="network">连接状态</h2>
+            </div>
+            <button id="btn-ping-all" class="link-button" data-i18n="testConnection">连接测试</button>
+          </div>
+          <div class="network-summary">
+            <div>
+              <span class="summary-label" data-i18n="exitIp">出口 IP</span>
+              <span id="network-region" class="region-label" data-i18n="detectingRegion">检测地区中</span>
+            </div>
+            <span id="network-ip" class="mono" data-i18n="detecting">检测中</span>
+          </div>
+          <p id="network-warning" class="network-warning hidden"></p>
+          <div class="ping-list">
+            <div class="ping-row"><span>proton.me</span><span id="ping-proton" class="ping-value">-</span></div>
+            <div class="ping-row"><span>google.com</span><span id="ping-google" class="ping-value">-</span></div>
+            <div class="ping-row"><span>dmm.com</span><span id="ping-dmm" class="ping-value">-</span></div>
+            <div class="ping-row"><span>bilibili.com</span><span id="ping-bilibili" class="ping-value">-</span></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
               <p class="card-kicker" data-i18n="updateKicker">更新</p>
               <h2 data-i18n="updates">自动更新</h2>
             </div>
@@ -215,6 +229,22 @@
   <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
     <span id="mute-label" data-i18n="unmuted">静音游戏</span>
   </button>
+
+  <dialog id="game-news-dialog" class="update-dialog game-news-dialog" aria-labelledby="game-news-dialog-title" aria-describedby="game-news-dialog-body">
+    <div class="update-dialog-head">
+      <span class="update-dialog-mark" aria-hidden="true">i</span>
+      <div>
+        <p class="update-dialog-kicker" data-i18n="newsKicker">游戏动态</p>
+        <h2 id="game-news-dialog-title" data-i18n="gameNews">更新公告</h2>
+      </div>
+      <span id="game-news-dialog-date" class="update-version"></span>
+    </div>
+    <div id="game-news-dialog-body" class="update-notes game-news-dialog-body" data-i18n="newsDetailLoading">正在加载公告正文...</div>
+    <div class="update-dialog-actions">
+      <button id="btn-news-close" class="control" type="button" data-i18n="newsClose">关闭</button>
+      <button id="btn-news-open" class="control primary" type="button" data-i18n="newsVisitOfficial">前往官网</button>
+    </div>
+  </dialog>
 
   <script src="sidebar.js"></script>
 </body>

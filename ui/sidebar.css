@@ -100,6 +100,16 @@ button:disabled {
   -webkit-app-region: drag;
 }
 
+.game-view-snapshot {
+  position: fixed;
+  z-index: 10;
+  display: block;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .chrome-title {
   display: flex;
   align-items: center;
@@ -387,6 +397,7 @@ h2 {
 .control:focus-visible,
 .tab:focus-visible,
 .secret-row:focus-visible,
+.game-news-row:focus-visible,
 .link-button:focus-visible,
 input:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--text) 18%, transparent);
@@ -503,6 +514,81 @@ input:focus-visible {
 
 .ping-value.failed {
   color: var(--danger);
+}
+
+.news-status {
+  margin: 12px 0 0;
+}
+
+.news-status:empty {
+  display: none;
+}
+
+.game-news-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 7px;
+}
+
+.game-news-row {
+  width: 100%;
+  padding: 10px 11px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+}
+
+.game-news-row:hover {
+  background: var(--surface-hover);
+}
+
+.game-news-row:active {
+  transform: scale(0.992);
+}
+
+.game-news-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.game-news-category {
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-strong) 76%, transparent);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.game-news-category.category-update,
+.game-news-category.category-campaign {
+  color: var(--success);
+}
+
+.game-news-category.category-defect,
+.game-news-category.category-important {
+  color: var(--danger);
+}
+
+.game-news-date {
+  color: var(--subtle);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 9px;
+}
+
+.game-news-title {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cache-metrics {
@@ -778,6 +864,107 @@ select {
   border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
 }
 
+.update-dialog {
+  width: min(520px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  overflow: hidden auto;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 22px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 94%, var(--window));
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
+}
+
+.update-dialog[open] {
+  animation: update-dialog-in 140ms ease-out;
+}
+
+.update-dialog::backdrop {
+  background: rgba(8, 8, 10, 0.48);
+}
+
+.update-dialog-head {
+  padding: 24px 24px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.update-dialog-head h2 {
+  font-size: 19px;
+  letter-spacing: -0.025em;
+}
+
+.update-dialog-kicker {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.update-dialog-mark {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: 23px;
+  font-weight: 760;
+}
+
+.update-version {
+  margin-left: auto;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-strong) 74%, transparent);
+  font: 10px/1.2 "SF Mono", Menlo, monospace;
+  white-space: nowrap;
+}
+
+.update-notes {
+  margin: 20px 24px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-strong) 58%, transparent);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-line;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.game-news-dialog-body {
+  max-height: min(420px, 50vh);
+  overflow: auto;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.update-dialog-actions {
+  padding: 20px 24px 24px;
+  display: grid;
+  grid-template-columns: 1fr 1.45fr;
+  gap: 10px;
+}
+
+.update-dialog-actions .control {
+  min-height: 44px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -798,4 +985,9 @@ select {
 @keyframes breathe {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }
+}
+
+@keyframes update-dialog-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }

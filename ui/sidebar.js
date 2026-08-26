@@ -5,6 +5,10 @@
   if (!api) return;
 
   var vaultState = null;
+  var gameNewsState = null;
+  var currentGameNewsUrl = '';
+  var gameViewSnapshotCache = null;
+  var gameViewSnapshotTask = null;
   var customUrlEditing = false;
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
@@ -99,6 +103,22 @@
       saved: '已保存',
       imported: '已导入',
       loadFailed: '加载失败',
+      newsKicker: '游戏动态',
+      gameNews: '更新公告',
+      newsLoading: '正在获取官方公告...',
+      newsEmpty: '暂无官方公告',
+      newsFailed: '官方公告暂时无法获取',
+      newsStale: '显示上次获取的公告',
+      newsOpen: '打开官方公告',
+      categoryUpdate: '更新',
+      categoryMainte: '维护',
+      categoryDefect: '故障',
+      categoryCampaign: '活动',
+      categoryImportant: '重要',
+      newsDetailLoading: '正在加载公告正文...',
+      newsDetailFailed: '公告正文暂时无法获取，可前往官网查看。',
+      newsClose: '关闭',
+      newsVisitOfficial: '前往官网',
     },
     en: {
       tabGame: 'Game',
@@ -184,6 +204,22 @@
       saved: 'Saved',
       imported: 'Imported',
       loadFailed: 'Load failed',
+      newsKicker: 'Game News',
+      gameNews: 'Update Notices',
+      newsLoading: 'Loading official notices...',
+      newsEmpty: 'No official notices',
+      newsFailed: 'Official notices unavailable',
+      newsStale: 'Showing cached notices',
+      newsOpen: 'Open official notice',
+      categoryUpdate: 'Update',
+      categoryMainte: 'Maintenance',
+      categoryDefect: 'Issue',
+      categoryCampaign: 'Event',
+      categoryImportant: 'Important',
+      newsDetailLoading: 'Loading notice...',
+      newsDetailFailed: 'The notice could not be loaded. You can view it on the official site.',
+      newsClose: 'Close',
+      newsVisitOfficial: 'Official Site',
     },
     ja: {
       tabGame: 'ゲーム',
@@ -269,6 +305,22 @@
       saved: '保存しました',
       imported: '取り込みました',
       loadFailed: '読み込み失敗',
+      newsKicker: 'ゲーム情報',
+      gameNews: '更新のお知らせ',
+      newsLoading: '公式のお知らせを取得中...',
+      newsEmpty: '公式のお知らせはありません',
+      newsFailed: '公式のお知らせを取得できません',
+      newsStale: '前回取得したお知らせを表示中',
+      newsOpen: '公式のお知らせを開く',
+      categoryUpdate: '更新',
+      categoryMainte: 'メンテナンス',
+      categoryDefect: '不具合',
+      categoryCampaign: 'キャンペーン',
+      categoryImportant: '重要',
+      newsDetailLoading: 'お知らせを読み込み中...',
+      newsDetailFailed: 'お知らせを取得できません。公式サイトで確認できます。',
+      newsClose: '閉じる',
+      newsVisitOfficial: '公式サイトへ',
     },
   };
 
@@ -277,6 +329,13 @@
     google: byId('ping-google'),
     dmm: byId('ping-dmm'),
     bilibili: byId('ping-bilibili'),
+  };
+  var newsCategoryKeys = {
+    update: 'categoryUpdate',
+    mainte: 'categoryMainte',
+    defect: 'categoryDefect',
+    campaign: 'categoryCampaign',
+    important: 'categoryImportant',
   };
 
   function byId(id) {
@@ -330,6 +389,7 @@
     byId('runtime-message').textContent = byId('runtime-message').textContent || t('ready');
     syncMuteState(byId('btn-mute').classList.contains('muted'));
     updateScrollControl(byId('scroll-level').value || 5);
+    if (gameNewsState) renderGameNews(gameNewsState);
   }
 
   function showPage(name) {
@@ -409,6 +469,185 @@
     }).catch(function (error) {
       byId('network-ip').textContent = t('networkFailed');
       if (showMessage) setRuntime(errorText(error), true);
+    });
+  }
+
+  function renderGameNews(state) {
+    gameNewsState = state || { items: [] };
+    var list = byId('game-news-list');
+    var status = byId('game-news-status');
+    var items = Array.isArray(gameNewsState.items) ? gameNewsState.items : [];
+    list.textContent = '';
+    status.classList.toggle('error', !!gameNewsState.error && !gameNewsState.stale);
+    if (gameNewsState.error) {
+      status.textContent = gameNewsState.stale ? t('newsStale') : t('newsFailed');
+    } else {
+      status.textContent = items.length ? '' : t('newsEmpty');
+    }
+
+    items.forEach(function (item) {
+      var button = document.createElement('button');
+      var meta = document.createElement('span');
+      var category = document.createElement('span');
+      var date = document.createElement('span');
+      var title = document.createElement('span');
+      var categoryKey = newsCategoryKeys[item.category] || newsCategoryKeys.important;
+      button.type = 'button';
+      button.className = 'game-news-row';
+      button.title = t('newsOpen');
+      meta.className = 'game-news-meta';
+      category.className = 'game-news-category category-' + (item.category || 'important');
+      category.textContent = t(categoryKey);
+      date.className = 'game-news-date';
+      date.textContent = item.date || '';
+      title.className = 'game-news-title';
+      title.textContent = item.title || '';
+      meta.appendChild(category);
+      meta.appendChild(date);
+      button.appendChild(meta);
+      button.appendChild(title);
+      button.addEventListener('click', function () {
+        showGameNewsDetail(item);
+      });
+      button.addEventListener('mouseenter', warmGameViewSnapshot);
+      button.addEventListener('focus', warmGameViewSnapshot);
+      list.appendChild(button);
+    });
+  }
+
+  function captureGameViewSnapshot(force) {
+    if (gameViewSnapshotTask) return gameViewSnapshotTask;
+    if (!force && gameViewSnapshotCache && Date.now() - gameViewSnapshotCache.capturedAt < 5000) {
+      return Promise.resolve(gameViewSnapshotCache);
+    }
+    gameViewSnapshotTask = api.invoke('game-news:snapshot').then(function (snapshot) {
+      if (!snapshot || !snapshot.dataUrl || !snapshot.bounds) return false;
+      gameViewSnapshotCache = {
+        dataUrl: snapshot.dataUrl,
+        bounds: snapshot.bounds,
+        capturedAt: Date.now(),
+      };
+      gameViewSnapshotCache.ready = preloadGameViewSnapshot(gameViewSnapshotCache);
+      return gameViewSnapshotCache;
+    }).catch(function () {
+      return false;
+    }).finally(function () {
+      gameViewSnapshotTask = null;
+    });
+    return gameViewSnapshotTask;
+  }
+
+  function warmGameViewSnapshot(eventOrForce) {
+    captureGameViewSnapshot(eventOrForce === true);
+  }
+
+  function preloadGameViewSnapshot(snapshot) {
+    var preload = new Image();
+    preload.decoding = 'async';
+    preload.src = snapshot.dataUrl;
+    if (typeof preload.decode === 'function') {
+      return preload.decode().catch(function () { return false; });
+    }
+    if (preload.complete) return Promise.resolve(true);
+    return new Promise(function (resolve) {
+      preload.addEventListener('load', function () { resolve(true); }, { once: true });
+      preload.addEventListener('error', function () { resolve(false); }, { once: true });
+    });
+  }
+
+  function displayGameViewSnapshot(snapshot) {
+    if (!snapshot) return Promise.resolve(false);
+    var image = byId('game-view-snapshot');
+    return Promise.resolve(snapshot.ready).catch(function () { return false; }).then(function () {
+      image.src = snapshot.dataUrl;
+      image.style.left = snapshot.bounds.x + 'px';
+      image.style.top = snapshot.bounds.y + 'px';
+      image.style.width = snapshot.bounds.width + 'px';
+      image.style.height = snapshot.bounds.height + 'px';
+      if (typeof image.decode === 'function') {
+        return image.decode().catch(function () { return false; });
+      }
+      return true;
+    }).then(function () {
+      image.classList.remove('hidden');
+      return new Promise(function (resolve) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { resolve(true); });
+        });
+      });
+    });
+  }
+
+  function prepareGameViewSnapshot() {
+    if (gameViewSnapshotCache) {
+      warmGameViewSnapshot();
+      return displayGameViewSnapshot(gameViewSnapshotCache);
+    }
+    return captureGameViewSnapshot().then(function (snapshot) {
+      if (!snapshot) return false;
+      return displayGameViewSnapshot(snapshot);
+    });
+  }
+
+  function clearGameViewSnapshot() {
+    var image = byId('game-view-snapshot');
+    image.classList.add('hidden');
+    image.removeAttribute('src');
+  }
+
+  function showGameNewsDetail(item) {
+    var dialog = byId('game-news-dialog');
+    var requestedUrl = item.url || '';
+    currentGameNewsUrl = requestedUrl;
+    byId('game-news-dialog-title').textContent = item.title || t('gameNews');
+    byId('game-news-dialog-date').textContent = item.date || '';
+    byId('game-news-dialog-body').textContent = t('newsDetailLoading');
+    byId('btn-news-open').disabled = !currentGameNewsUrl;
+    prepareGameViewSnapshot().then(function () {
+      if (currentGameNewsUrl !== requestedUrl) {
+        clearGameViewSnapshot();
+        return false;
+      }
+      return api.invoke('game-news:dialog-state', 'open');
+    }).then(function (ready) {
+      if (!ready) return;
+      if (currentGameNewsUrl !== requestedUrl) return;
+      if (!dialog.open) dialog.showModal();
+      setTimeout(function () { byId('btn-news-close').focus(); }, 0);
+    });
+    api.invoke('game-news:detail', requestedUrl).then(function (detail) {
+      if (currentGameNewsUrl !== requestedUrl) return;
+      currentGameNewsUrl = detail.url || currentGameNewsUrl;
+      byId('game-news-dialog-title').textContent = detail.title || item.title || t('gameNews');
+      byId('game-news-dialog-date').textContent = detail.date || item.date || '';
+      byId('game-news-dialog-body').textContent = detail.body || t('newsDetailFailed');
+      byId('btn-news-open').disabled = !currentGameNewsUrl;
+    }).catch(function () {
+      if (currentGameNewsUrl !== requestedUrl) return;
+      byId('game-news-dialog-body').textContent = t('newsDetailFailed');
+    });
+  }
+
+  function closeGameNewsDialog() {
+    var dialog = byId('game-news-dialog');
+    if (dialog.open) dialog.close();
+    currentGameNewsUrl = '';
+    api.invoke('game-news:dialog-state', 'close').finally(function () {
+      requestAnimationFrame(clearGameViewSnapshot);
+    });
+  }
+
+  function refreshGameNews(force) {
+    var button = byId('btn-refresh-news');
+    var status = byId('game-news-status');
+    button.disabled = true;
+    status.classList.remove('error');
+    status.textContent = t('newsLoading');
+    return api.invoke('game-news:list', !!force).then(renderGameNews).catch(function () {
+      var cachedItems = gameNewsState && Array.isArray(gameNewsState.items) ? gameNewsState.items : [];
+      renderGameNews({ items: cachedItems, error: true, stale: cachedItems.length > 0 });
+    }).finally(function () {
+      button.disabled = false;
     });
   }
 
@@ -578,6 +817,15 @@
     Object.keys(pingFields).forEach(runPing);
     refreshNetworkStatus(false);
   });
+  byId('btn-refresh-news').addEventListener('click', function () { refreshGameNews(true); });
+  byId('btn-news-close').addEventListener('click', closeGameNewsDialog);
+  byId('btn-news-open').addEventListener('click', function () {
+    if (currentGameNewsUrl) api.invoke('game-news:open', currentGameNewsUrl);
+  });
+  byId('game-news-dialog').addEventListener('cancel', function (event) {
+    event.preventDefault();
+    closeGameNewsDialog();
+  });
   byId('btn-refresh-cache').addEventListener('click', function () { refreshCache(true); });
   byId('btn-clear-cache').addEventListener('click', function () {
     var button = this;
@@ -666,10 +914,15 @@
   refreshVault();
   refreshBrowserState();
   refreshNetworkStatus(false);
+  refreshGameNews(false);
   refreshCache(true);
+  setTimeout(function () { warmGameViewSnapshot(true); }, 2500);
+  setTimeout(function () { warmGameViewSnapshot(true); }, 6000);
   setTimeout(function () { Object.keys(pingFields).forEach(runPing); }, 700);
   setInterval(refreshBrowserState, 2000);
   setInterval(function () { refreshCache(false); }, 15000);
+  setInterval(function () { refreshGameNews(false); }, 30 * 60 * 1000);
+  window.addEventListener('resize', function () { gameViewSnapshotCache = null; });
   setInterval(function () {
     updateTotpProgress();
     if (

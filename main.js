@@ -29,6 +29,16 @@ const {
   isWebUrl,
   normalizeCustomUrl,
 } = require('./lib/navigation');
+const {
+  buildGameNewsDiskCache,
+  GAME_NEWS_LIST_URL,
+  latestGameNewsItems,
+  normalizeGameNewsDiskCache,
+  parseGameNewsDetail,
+  parseGameNewsList,
+  pruneGameNewsDetailCache,
+  trustedGameNewsUrl,
+} = require('./lib/game-news');
 
 const WINDOW_W = 1320;
 const WINDOW_H = 760;
@@ -51,6 +61,8 @@ const CONTACT_EMAIL = 'SeaRoach@proton.me';
 const QQ_GROUP = '1022215649';
 const GITHUB_REPO = 'https://github.com/KaguraMatsuri/MT-Aigis';
 const UPDATE_MANIFEST_URL = `${GITHUB_REPO}/releases/latest/download/latest-mac.yml`;
+const GAME_NEWS_CACHE_MS = 30 * 60 * 1000;
+const GAME_NEWS_LIMIT = 3;
 const THEME_COLORS = {
   dark: '#101011',
   light: '#f2f2f7',
@@ -188,6 +200,7 @@ app.setPath('sessionData', USER_DATA);
 const LOG_DIR = path.join(USER_DATA, 'logs');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 const DEBUG_LOG = path.join(LOG_DIR, 'debug.log');
+const GAME_NEWS_CACHE_FILE = path.join(USER_DATA, 'cache', 'game-news.json');
 
 const store = new SecureConfigStore(path.join(USER_DATA, 'secure'));
 const vault = new PlainVault(path.join(USER_DATA, 'secure', 'vault.json'));
@@ -206,6 +219,7 @@ let layoutPending = false;
 let resourceStats = createResourceStats();
 let cacheStatsCache = null;
 let cacheStatsAt = 0;
+let gameViewAttached = false;
 let updateState = {
   status: 'idle',
   message: '',
@@ -213,8 +227,14 @@ let updateState = {
   error: '',
 };
 let updateDownloadTask = null;
+let gameNewsCache = { items: [], fetchedAt: 0 };
+let gameNewsTask = null;
+const gameNewsDetailCache = new Map();
+const gameNewsDetailTasks = new Map();
+let gameNewsDetailUrls = new Set();
 
 log.initialize();
+loadGameNewsDiskCache();
 
 function debugLog(...parts) {
   try {
@@ -230,6 +250,50 @@ function debugLog(...parts) {
     fs.appendFileSync(DEBUG_LOG, line);
   } catch {}
   console.log('[MT-Aigis]', ...parts);
+}
+
+function loadGameNewsDiskCache() {
+  try {
+    if (!fs.existsSync(GAME_NEWS_CACHE_FILE)) return;
+    const cached = normalizeGameNewsDiskCache(
+      JSON.parse(fs.readFileSync(GAME_NEWS_CACHE_FILE, 'utf8'))
+    );
+    if (!cached) {
+      debugLog('game-news-cache-invalid');
+      return;
+    }
+    gameNewsCache = { items: cached.items, fetchedAt: cached.fetchedAt };
+    cached.details.forEach((detail) => gameNewsDetailCache.set(detail.url, detail));
+    gameNewsDetailUrls = pruneGameNewsDetailCache(
+      gameNewsDetailCache,
+      cached.items,
+      GAME_NEWS_LIMIT
+    );
+    debugLog('game-news-cache-loaded', {
+      items: cached.items.length,
+      details: gameNewsDetailCache.size,
+    });
+  } catch (error) {
+    debugLog('game-news-cache-read-error', error && error.message ? error.message : String(error));
+  }
+}
+
+function saveGameNewsDiskCache() {
+  try {
+    const payload = buildGameNewsDiskCache(
+      gameNewsCache.items,
+      gameNewsCache.fetchedAt,
+      gameNewsDetailCache,
+      GAME_NEWS_LIMIT
+    );
+    const directory = path.dirname(GAME_NEWS_CACHE_FILE);
+    const temporaryFile = `${GAME_NEWS_CACHE_FILE}.tmp`;
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(temporaryFile, `${JSON.stringify(payload)}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporaryFile, GAME_NEWS_CACHE_FILE);
+  } catch (error) {
+    debugLog('game-news-cache-write-error', error && error.message ? error.message : String(error));
+  }
 }
 
 function loadResource(name) {
@@ -637,6 +701,7 @@ function createWindow() {
   mainWindow.on('closed', () => {
     clearFocusTimers();
     layoutPending = false;
+    gameViewAttached = false;
     if (gameView && !gameView.webContents.isDestroyed()) {
       gameView.webContents.close();
     }
@@ -664,6 +729,7 @@ function createGameView() {
   scrollSource = loadResource('game-scroll.js');
 
   mainWindow.setBrowserView(gameView);
+  gameViewAttached = true;
   gameView.setAutoResize({ width: false, height: false });
   gameView.webContents.setUserAgent(CHROME_UA);
   gameView.webContents.setBackgroundThrottling(false);
@@ -827,13 +893,32 @@ function effectiveLanguage() {
   return 'en';
 }
 
+function setGameViewAttached(attached) {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    !gameView ||
+    gameView.webContents.isDestroyed()
+  ) return;
+  if (attached && !gameViewAttached) {
+    mainWindow.setBrowserView(gameView);
+    gameViewAttached = true;
+    updateLayout(false);
+    return;
+  }
+  if (!attached && gameViewAttached) {
+    mainWindow.removeBrowserView(gameView);
+    gameViewAttached = false;
+  }
+}
+
 function updateLayout(debounce) {
-  if (!mainWindow || !gameView) return;
+  if (!mainWindow || !gameView || !gameViewAttached) return;
   if (debounce !== false && layoutPending) return;
   layoutPending = true;
   var apply = function () {
     layoutPending = false;
-    if (!mainWindow || !gameView) return;
+    if (!mainWindow || !gameView || !gameViewAttached) return;
     var size = mainWindow.getContentSize();
     var width = size[0], height = size[1];
     var sidebarW = sidebarCollapsed ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH;
@@ -1172,6 +1257,82 @@ async function fetchThroughGameSession(url, options = {}) {
   });
 }
 
+async function getGameNews(force = false) {
+  const cacheAge = Date.now() - gameNewsCache.fetchedAt;
+  if (!force && gameNewsCache.items.length && cacheAge < GAME_NEWS_CACHE_MS) {
+    await primeGameNewsDetails(gameNewsCache.items);
+    return { ...gameNewsCache, stale: false, error: false };
+  }
+  if (gameNewsTask) return gameNewsTask;
+
+  gameNewsTask = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetchThroughGameSession(GAME_NEWS_LIST_URL, {
+        signal: controller.signal,
+        headers: { Accept: 'text/html,application/xhtml+xml' },
+      });
+      if (!response.ok) throw new Error(`Game news HTTP ${response.status}`);
+      const parsedItems = parseGameNewsList(await response.text(), 30);
+      if (!parsedItems.length) throw new Error('No valid game news entries were found.');
+      const items = latestGameNewsItems(parsedItems, GAME_NEWS_LIMIT);
+      gameNewsCache = { items, fetchedAt: Date.now() };
+      await primeGameNewsDetails(items);
+      return { ...gameNewsCache, stale: false, error: false };
+    } catch (error) {
+      debugLog('game-news-error', error && error.message ? error.message : String(error));
+      return {
+        ...gameNewsCache,
+        stale: gameNewsCache.items.length > 0,
+        error: true,
+      };
+    } finally {
+      clearTimeout(timeout);
+      gameNewsTask = null;
+    }
+  })();
+  return gameNewsTask;
+}
+
+async function getGameNewsDetail(rawUrl) {
+  const url = trustedGameNewsUrl(rawUrl);
+  if (!url) throw new Error('Invalid game news URL.');
+  if (gameNewsDetailCache.has(url)) return gameNewsDetailCache.get(url);
+  if (gameNewsDetailTasks.has(url)) return gameNewsDetailTasks.get(url);
+
+  const task = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetchThroughGameSession(url, {
+        signal: controller.signal,
+        headers: { Accept: 'text/html,application/xhtml+xml' },
+      });
+      if (!response.ok) throw new Error(`Game news detail HTTP ${response.status}`);
+      const detail = parseGameNewsDetail(await response.text(), url);
+      if (!detail) throw new Error('Game news detail could not be parsed.');
+      if (gameNewsDetailUrls.has(url)) gameNewsDetailCache.set(url, detail);
+      return detail;
+    } finally {
+      clearTimeout(timeout);
+      gameNewsDetailTasks.delete(url);
+    }
+  })();
+  gameNewsDetailTasks.set(url, task);
+  return task;
+}
+
+async function primeGameNewsDetails(items) {
+  gameNewsDetailUrls = pruneGameNewsDetailCache(
+    gameNewsDetailCache,
+    items,
+    GAME_NEWS_LIMIT
+  );
+  await Promise.allSettled(items.map((item) => getGameNewsDetail(item.url)));
+  saveGameNewsDiskCache();
+}
+
 async function pingTarget(targetKey) {
   const target = NETWORK_TARGETS[targetKey];
   if (!target) return { ok: false, error: 'Unknown target.' };
@@ -1457,6 +1618,76 @@ ipcMain.handle('network:status', async () => {
 
 ipcMain.handle('network:ping', async (_, target) => {
   return pingTarget(target);
+});
+
+ipcMain.handle('game-news:list', (_, force) => {
+  return getGameNews(Boolean(force));
+});
+
+ipcMain.handle('game-news:detail', (event, rawUrl) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) throw new Error('Game news is only available in the main window.');
+  return getGameNewsDetail(rawUrl);
+});
+
+function hasVisibleSnapshotContent(image) {
+  if (!image || image.isEmpty()) return false;
+  const probe = image.resize({ width: 32, height: 32, quality: 'good' }).toBitmap();
+  let visiblePixels = 0;
+  let sampledPixels = 0;
+  for (let offset = 0; offset + 3 < probe.length; offset += 4) {
+    sampledPixels += 1;
+    const blue = probe[offset];
+    const green = probe[offset + 1];
+    const red = probe[offset + 2];
+    const alpha = probe[offset + 3];
+    if (alpha > 8 && Math.max(red, green, blue) > 20) visiblePixels += 1;
+  }
+  return sampledPixels > 0 && visiblePixels / sampledPixels >= 0.02;
+}
+
+ipcMain.handle('game-news:snapshot', async (event) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id ||
+    !gameView ||
+    gameView.webContents.isDestroyed() ||
+    !gameViewAttached
+  ) return null;
+  const image = await gameView.webContents.capturePage();
+  if (!hasVisibleSnapshotContent(image)) {
+    debugLog('game-news-snapshot-rejected', { reason: 'blank-frame' });
+    return null;
+  }
+  return {
+    dataUrl: image.toDataURL(),
+    bounds: gameView.getBounds(),
+  };
+});
+
+ipcMain.handle('game-news:dialog-state', (event, state) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) return false;
+  setGameViewAttached(state !== 'open');
+  return true;
+});
+
+ipcMain.handle('game-news:open', (event, rawUrl) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) return false;
+  const url = trustedGameNewsUrl(rawUrl);
+  if (!url) return false;
+  return shell.openExternal(url).then(() => true);
 });
 
 ipcMain.handle('scroll:set-level', (_, level) => {
