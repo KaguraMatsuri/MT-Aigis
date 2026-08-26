@@ -19,6 +19,11 @@ const path = require('path');
 const { SecureConfigStore, defaultConfig } = require('./lib/secure-config');
 const { PlainVault, emptyVault } = require('./lib/plain-vault');
 const {
+  getAutofillSuggestion,
+  getAutofillValues,
+  isTrustedAutofillUrl,
+} = require('./lib/autofill');
+const {
   DEFAULT_URL,
   isAdaptedPage,
   isWebUrl,
@@ -646,7 +651,10 @@ function createGameView() {
   gameView = new BrowserView({
     webPreferences: {
       partition: VIEW_PARTITION,
+      preload: path.join(__dirname, 'resources', 'dmm-autofill-preload.js'),
       contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
       backgroundThrottling: false,
       spellcheck: false,
     },
@@ -1594,6 +1602,40 @@ ipcMain.handle('vault:copy', (_, field) => {
   else throw new Error('Unknown vault field.');
   clipboard.writeText(String(value || ''));
   return true;
+});
+
+function assertTrustedAutofillFrame(event) {
+  if (
+    !gameView ||
+    gameView.webContents.isDestroyed() ||
+    event.sender.id !== gameView.webContents.id
+  ) {
+    throw new Error('Autofill is only available in the game browser.');
+  }
+  const frameUrl = event.senderFrame && event.senderFrame.url || '';
+  if (!isTrustedAutofillUrl(frameUrl)) {
+    throw new Error('Autofill is not available on this page.');
+  }
+}
+
+ipcMain.handle('autofill:suggestion', (event) => {
+  assertTrustedAutofillFrame(event);
+  const status = vault.status();
+  if (!status.exists || status.error) {
+    return {
+      available: false,
+      label: '',
+      fields: { username: false, password: false, totp: false },
+    };
+  }
+  return getAutofillSuggestion(vault.load());
+});
+
+ipcMain.handle('autofill:fill', (event, payload) => {
+  assertTrustedAutofillFrame(event);
+  const kind = payload && payload.kind;
+  const values = getAutofillValues(vault.load(), kind, currentTotp);
+  return { ok: Object.values(values).some(Boolean), values };
 });
 
 ipcMain.handle('clipboard:write', (_, value) => {
