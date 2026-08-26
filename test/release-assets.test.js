@@ -59,3 +59,29 @@ test('builds releases without requiring an unavailable Xcode 26 actool', () => {
   assert.match(releaseWorkflow, /dist\/latest-mac\.yml/);
   assert.match(read('main.js'), /matchesSha512\(digest\.digest\('base64'\), manifest\.dmg\.sha512\)/);
 });
+
+test('publishes an absolute update URL for legacy clients', () => {
+  const packageJson = JSON.parse(read('package.json'));
+  const releaseWorkflow = read('.github/workflows/release.yml');
+  const prepareManifest = require('../scripts/prepare-release-manifest');
+  const relativeManifest = [
+    'version: 1.1.0',
+    'files:',
+    '  - url: MT-Aigis-1.1.0-arm64.dmg',
+    '    sha512: digest',
+    '  - url: MT-Aigis-1.1.0-arm64.zip',
+    '    sha512: digest',
+    'path: MT-Aigis-1.1.0-arm64.zip',
+    '',
+  ].join('\n');
+  const prepared = prepareManifest(relativeManifest);
+
+  assert.equal(packageJson.scripts['release:manifest'], 'node scripts/prepare-release-manifest.js dist/latest-mac.yml');
+  assert.match(releaseWorkflow, /npm run release:manifest/);
+  assert.match(releaseWorkflow, /--publish never/);
+  assert.match(releaseWorkflow, /gh release upload "\$GITHUB_REF_NAME" dist\/\*\.dmg dist\/\*\.zip dist\/\*\.blockmap dist\/latest-mac\.yml --clobber/);
+  assert.match(prepared, /url: https:\/\/github\.com\/KaguraMatsuri\/MT-Aigis\/releases\/latest\/download\/MT-Aigis-1\.1\.0-arm64\.dmg/);
+  assert.match(prepared, /url: https:\/\/github\.com\/KaguraMatsuri\/MT-Aigis\/releases\/latest\/download\/MT-Aigis-1\.1\.0-arm64\.zip/);
+  assert.match(prepared, /path: MT-Aigis-1\.1\.0-arm64\.zip/);
+  assert.equal(prepareManifest(prepared), prepared);
+});

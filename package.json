@@ -8,6 +8,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "start": "electron .",
+    "release:manifest": "node scripts/prepare-release-manifest.js dist/latest-mac.yml",
     "dist:mac": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --mac --arm64",
     "dist:dir": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --dir --mac --arm64 -c.mac.identity=null"
   },

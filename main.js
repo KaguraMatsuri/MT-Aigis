@@ -32,6 +32,7 @@ const {
   getUpdateSeed,
   matchesSha512,
   normalizeGithubRelease,
+  resolveUpdateAssetUrl,
 } = require('./lib/update-notification');
 const {
   buildGameNewsDiskCache,
@@ -538,12 +539,14 @@ async function readLatestManifest() {
   const dmg = pickDmgAsset(manifest);
   if (!manifest.version) throw new Error('invalid manifest');
   if (!dmg) throw new Error('missing dmg');
+  const downloadUrl = resolveUpdateAssetUrl(dmg.url);
+  if (!downloadUrl) throw new Error('invalid dmg URL');
   return {
     ...manifest,
     manifestUrl: result.url,
     dmg: {
       ...dmg,
-      downloadUrl: new URL(dmg.url, result.url).toString(),
+      downloadUrl,
     },
   };
 }
@@ -560,7 +563,7 @@ async function readLatestGithubRelease(manifestVersion = '') {
   if (!response.ok) {
     throw new Error(`GitHub release HTTP ${response.status}`);
   }
-  return normalizeGithubRelease(await response.json(), manifestVersion);
+  return normalizeGithubRelease(await response.json(), manifestVersion, effectiveLanguage());
 }
 
 function showUpdateNotification(release) {

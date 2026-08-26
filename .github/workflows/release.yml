@@ -34,10 +34,19 @@ jobs:
 
       - name: Build macOS DMG and ZIP
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-        run: npm run dist:mac -- --publish always -c.mac.icon=resources/icon.png
+        run: npm run dist:mac -- --publish never -c.mac.icon=resources/icon.png
+
+      - name: Make update manifest compatible with legacy clients
+        run: npm run release:manifest
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "MT-Aigis ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml --clobber
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -46,5 +55,6 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/*.blockmap
             dist/latest-mac.yml
           if-no-files-found: error

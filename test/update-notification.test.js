@@ -4,8 +4,10 @@ const test = require('node:test');
 const {
   formatReleaseNotes,
   getUpdateSeed,
+  localizedReleaseNotes,
   matchesSha512,
   normalizeGithubRelease,
+  resolveUpdateAssetUrl,
   trustedReleaseUrl,
 } = require('../lib/update-notification');
 
@@ -35,6 +37,23 @@ test('limits release notes and rejects non-project release links', () => {
   assert.equal(trustedReleaseUrl('http://github.com/KaguraMatsuri/MT-Aigis/releases'), '');
 });
 
+test('selects the localized notes from a bilingual GitHub release', () => {
+  const body = [
+    '## 中文',
+    '',
+    '[功能] 中文更新内容.',
+    '',
+    '## English',
+    '',
+    '[Feature] English release notes.',
+  ].join('\n');
+
+  assert.equal(localizedReleaseNotes(body, 'zh'), '[功能] 中文更新内容.');
+  assert.equal(localizedReleaseNotes(body, 'en'), '[Feature] English release notes.');
+  assert.equal(localizedReleaseNotes(body, 'ja'), '[Feature] English release notes.');
+  assert.equal(normalizeGithubRelease({ body }, '1.2.0', 'zh').notes, '[功能] 中文更新内容.');
+});
+
 test('provides localized development seed content', () => {
   const seed = getUpdateSeed('zh');
   assert.equal(seed.seed, true);
@@ -53,4 +72,17 @@ test('validates the base64 SHA-512 used by release manifests', () => {
   assert.equal(matchesSha512(digest, digest), true);
   assert.equal(matchesSha512(digest, Buffer.alloc(64, 8).toString('base64')), false);
   assert.equal(matchesSha512('', digest), false);
+});
+
+test('resolves update assets against the stable GitHub Release URL', () => {
+  assert.equal(
+    resolveUpdateAssetUrl('MT-Aigis-1.1.0-arm64.dmg'),
+    'https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/MT-Aigis-1.1.0-arm64.dmg',
+  );
+  assert.equal(
+    resolveUpdateAssetUrl('https://github.com/KaguraMatsuri/MT-Aigis/releases/download/v1.1.0/MT-Aigis-1.1.0-arm64.dmg'),
+    'https://github.com/KaguraMatsuri/MT-Aigis/releases/download/v1.1.0/MT-Aigis-1.1.0-arm64.dmg',
+  );
+  assert.equal(resolveUpdateAssetUrl('https://example.com/MT-Aigis.dmg'), '');
+  assert.equal(resolveUpdateAssetUrl('http://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/MT-Aigis.dmg'), '');
 });
