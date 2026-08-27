@@ -2,6 +2,8 @@
 
 # MT-Aigis
 
+千年戦争アイギス（Millennium War Aigis）向けの非公式 macOS クライアントです。
+
 <img width="3456" height="2160" alt="24b9f265-d169-4c46-9b42-dbc28eb6f294" src="https://github.com/user-attachments/assets/feacd0f6-6de9-4831-be2f-2f18cccdabb4" />
 
 
