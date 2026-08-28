@@ -9,12 +9,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   macos:
     runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -22,8 +28,61 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Verify release tag matches package version
+        id: release_metadata
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" \
+            && ( "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != v* ) ]]; then
+            echo "::error::workflow_dispatch must run from an existing v* tag, got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != v* ]]; then
+            echo "::error::Release workflow requires a v* tag, got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${DEFAULT_BRANCH}"; then
+            echo "::error::Release tag must point to a commit already contained in origin/${DEFAULT_BRANCH}."
+            exit 1
+          fi
+
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ ! "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Package version '${package_version}' is not a stable semantic version."
+            exit 1
+          fi
+          expected_tag="v${package_version}"
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "::error::Release tag '${GITHUB_REF_NAME}' does not match package version '${package_version}' (expected '${expected_tag}')."
+            exit 1
+          fi
+
+          release_notes_path=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [[ ! -f "$release_notes_path" ]]; then
+            echo "::error::Missing bilingual release notes: ${release_notes_path}."
+            exit 1
+          fi
+          for heading in "## 中文" "## English"; do
+            if ! grep -Fqx "$heading" "$release_notes_path"; then
+              echo "::error::Release notes must contain a non-localized '${heading}' section heading."
+              exit 1
+            fi
+          done
+          echo "RELEASE_NOTES_PATH=${release_notes_path}" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=${package_version}" >> "$GITHUB_ENV"
+          echo "version=${package_version}" >> "$GITHUB_OUTPUT"
+
       - name: Install
         run: npm ci
+
+      - name: Test
+        run: npm test
 
       - name: Select Xcode
         run: |
@@ -41,20 +100,168 @@ jobs:
       - name: Make update manifest compatible with legacy clients
         run: npm run release:manifest
 
-      - name: Publish release assets
+      - name: Verify release artifacts
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          npm run release:verify
+          hdiutil verify "dist/MT-Aigis-${version}-arm64.dmg"
+          unzip -tq "dist/MT-Aigis-${version}-arm64.zip"
+
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "MT-Aigis ${GITHUB_REF_NAME#v}" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml --clobber
+          set -euo pipefail
+
+          find_release() {
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | [.id, .draft, .prerelease] | @tsv"
+          }
+
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${DEFAULT_BRANCH}"; then
+            echo "::error::Release tag is no longer contained in origin/${DEFAULT_BRANCH}; refusing to create a draft."
+            exit 1
+          fi
+
+          release_record="$(find_release)"
+          if [[ "$release_record" == *$'\n'* ]]; then
+            echo "::error::Multiple releases unexpectedly use tag '${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+
+          if [[ -z "$release_record" ]]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --prerelease=false \
+              --verify-tag \
+              --title "MT-Aigis ${GITHUB_REF_NAME#v}" \
+              --notes-file "$RELEASE_NOTES_PATH"
+            release_record="$(find_release)"
+          fi
+
+          if [[ "$release_record" == *$'\n'* ]]; then
+            echo "::error::Multiple releases unexpectedly use tag '${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+          IFS=$'\t' read -r release_id release_is_draft release_is_prerelease <<< "$release_record"
+          if [[ ! "$release_id" =~ ^[0-9]+$ || "$release_is_draft" != "true" ]]; then
+            echo "::error::Release '${GITHUB_REF_NAME}' is already published or could not be resolved as a draft."
+            exit 1
+          fi
+
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -F draft=true \
+            -F prerelease=false \
+            -f "name=MT-Aigis ${GITHUB_REF_NAME#v}" \
+            -F "body=@${RELEASE_NOTES_PATH}" \
+            --silent
+
+          release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '[.draft, .prerelease] | @tsv')"
+          if [[ "$release_state" != $'true\tfalse' ]]; then
+            echo "::error::Release '${GITHUB_REF_NAME}' must remain a non-prerelease draft before asset upload."
+            exit 1
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          find_release() {
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | [.id, .draft, .prerelease] | @tsv"
+          }
+
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${DEFAULT_BRANCH}"; then
+            echo "::error::Release tag is no longer contained in origin/${DEFAULT_BRANCH}; refusing to upload assets."
+            exit 1
+          fi
+
+          release_record="$(find_release)"
+          if [[ "$release_record" == *$'\n'* ]]; then
+            echo "::error::Multiple releases unexpectedly use tag '${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+          IFS=$'\t' read -r release_id release_is_draft release_is_prerelease <<< "$release_record"
+          if [[ ! "$release_id" =~ ^[0-9]+$ || "$release_is_draft" != "true" || "$release_is_prerelease" != "false" ]]; then
+            echo "::error::Release '${GITHUB_REF_NAME}' must still be a non-prerelease draft before asset upload."
+            exit 1
+          fi
+
+          dmg="dist/MT-Aigis-${PACKAGE_VERSION}-arm64.dmg"
+          zip="dist/MT-Aigis-${PACKAGE_VERSION}-arm64.zip"
+          gh release upload "$GITHUB_REF_NAME" \
+            "$dmg" \
+            "${dmg}.blockmap" \
+            "$zip" \
+            "${zip}.blockmap" \
+            dist/latest-mac.yml \
+            --clobber
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MT-macos-arm64
           path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.blockmap
+            dist/MT-Aigis-${{ steps.release_metadata.outputs.version }}-arm64.dmg
+            dist/MT-Aigis-${{ steps.release_metadata.outputs.version }}-arm64.dmg.blockmap
+            dist/MT-Aigis-${{ steps.release_metadata.outputs.version }}-arm64.zip
+            dist/MT-Aigis-${{ steps.release_metadata.outputs.version }}-arm64.zip.blockmap
             dist/latest-mac.yml
           if-no-files-found: error
+
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          find_release() {
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | [.id, .draft, .prerelease] | @tsv"
+          }
+
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${DEFAULT_BRANCH}"; then
+            echo "::error::Release tag is no longer contained in origin/${DEFAULT_BRANCH}; refusing to publish."
+            exit 1
+          fi
+
+          release_record="$(find_release)"
+          if [[ "$release_record" == *$'\n'* ]]; then
+            echo "::error::Multiple releases unexpectedly use tag '${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+          IFS=$'\t' read -r release_id release_is_draft release_is_prerelease <<< "$release_record"
+          if [[ ! "$release_id" =~ ^[0-9]+$ || "$release_is_draft" != "true" || "$release_is_prerelease" != "false" ]]; then
+            echo "::error::Release '${GITHUB_REF_NAME}' must still be a non-prerelease draft before publication."
+            exit 1
+          fi
+
+          expected_assets="$(printf '%s\n' \
+            "MT-Aigis-${PACKAGE_VERSION}-arm64.dmg" \
+            "MT-Aigis-${PACKAGE_VERSION}-arm64.dmg.blockmap" \
+            "MT-Aigis-${PACKAGE_VERSION}-arm64.zip" \
+            "MT-Aigis-${PACKAGE_VERSION}-arm64.zip.blockmap" \
+            latest-mac.yml | LC_ALL=C sort)"
+          actual_assets="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
+            --jq '.[].name' | LC_ALL=C sort)"
+          if [[ "$actual_assets" != "$expected_assets" ]]; then
+            echo "::error::Release assets do not match the exact verified five-file set."
+            printf 'Expected:\n%s\nActual:\n%s\n' "$expected_assets" "$actual_assets" >&2
+            exit 1
+          fi
+
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -F draft=false \
+            -F prerelease=false \
+            -f make_latest=legacy \
+            --silent
