@@ -133,13 +133,14 @@ jobs:
           fi
 
           if [[ -z "$release_record" ]]; then
-            gh release create "$GITHUB_REF_NAME" \
-              --draft \
-              --prerelease=false \
-              --verify-tag \
-              --title "MT-Aigis ${GITHUB_REF_NAME#v}" \
-              --notes-file "$RELEASE_NOTES_PATH"
-            release_record="$(find_release)"
+            release_record="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f "tag_name=${GITHUB_REF_NAME}" \
+              -f "target_commitish=${GITHUB_SHA}" \
+              -f "name=MT-Aigis ${GITHUB_REF_NAME#v}" \
+              -F "body=@${RELEASE_NOTES_PATH}" \
+              -F draft=true \
+              -F prerelease=false \
+              --jq '[.id, .draft, .prerelease] | @tsv')"
           fi
 
           if [[ "$release_record" == *$'\n'* ]]; then
@@ -153,6 +154,8 @@ jobs:
           fi
 
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f "tag_name=${GITHUB_REF_NAME}" \
+            -f "target_commitish=${GITHUB_SHA}" \
             -F draft=true \
             -F prerelease=false \
             -f "name=MT-Aigis ${GITHUB_REF_NAME#v}" \

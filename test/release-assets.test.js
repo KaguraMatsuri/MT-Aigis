@@ -95,7 +95,7 @@ test('publishes an absolute update URL for legacy clients', () => {
 
 test('publishes only a complete release for the package-matched tag', () => {
   const releaseWorkflow = read('.github/workflows/release.yml');
-  const createDraft = 'gh release create "$GITHUB_REF_NAME"';
+  const createDraft = 'gh api --method POST "repos/${GITHUB_REPOSITORY}/releases"';
   const uploadAssets = 'gh release upload "$GITHUB_REF_NAME"';
   const archiveArtifacts = 'uses: actions/upload-artifact@v4';
   const publishRelease = '- name: Publish complete release';
@@ -114,14 +114,16 @@ test('publishes only a complete release for the package-matched tag', () => {
   assert.match(releaseWorkflow, /Missing bilingual release notes/);
   assert.match(releaseWorkflow, /for heading in "## 中文" "## English"/);
   assert.match(releaseWorkflow, /- name: Test\n\s+run: npm test/);
-  assert.match(releaseWorkflow, /--notes-file "\$RELEASE_NOTES_PATH"/);
-  assert.match(releaseWorkflow, /--draft \\\n\s+--prerelease=false \\\n\s+--verify-tag/);
+  assert.match(releaseWorkflow, /-F "body=@\$\{RELEASE_NOTES_PATH\}"/);
+  assert.match(releaseWorkflow, /-f "tag_name=\$\{GITHUB_REF_NAME\}"/);
+  assert.match(releaseWorkflow, /-f "target_commitish=\$\{GITHUB_SHA\}"/);
+  assert.match(releaseWorkflow, /-F draft=true/);
   assert.match(releaseWorkflow, /gh api --paginate "repos\/\$\{GITHUB_REPOSITORY\}\/releases\?per_page=100"/);
   assert.doesNotMatch(releaseWorkflow, /--paginate --slurp[\s\S]*?--jq/);
   assert.doesNotMatch(releaseWorkflow, /releases\/tags\/\$\{GITHUB_REF_NAME\}/);
   assert.doesNotMatch(releaseWorkflow, /\|\| true/);
   assert.match(releaseWorkflow, /is already published or could not be resolved as a draft/);
-  assert.match(releaseWorkflow, /--prerelease=false/);
+  assert.match(releaseWorkflow, /-F prerelease=false/);
   assert.ok((releaseWorkflow.match(/git merge-base --is-ancestor/g) || []).length >= 4);
   assert.ok((releaseWorkflow.match(/must still be a non-prerelease draft/g) || []).length >= 2);
   assert.match(releaseWorkflow, /releases\/\$\{release_id\}\/assets\?per_page=100/);
