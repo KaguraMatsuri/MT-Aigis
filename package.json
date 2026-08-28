@@ -1,6 +1,6 @@
 {
   "name": "mt-aigis",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "No.zomu",
   "license": "LicenseRef-MT-Aigis-Personal-Use-1.0",
   "description": "千年战争Aigis macOS Client",
@@ -47,7 +47,7 @@
     "mac": {
       "category": "public.app-category.games",
       "icon": "resources/MT-Aigis.icon",
-      "bundleVersion": "1.1.0",
+      "bundleVersion": "1.2.0",
       "executableName": "MT-Aigis",
       "target": [
         {

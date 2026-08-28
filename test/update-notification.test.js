@@ -57,12 +57,15 @@ test('selects the localized notes from a bilingual GitHub release', () => {
 test('provides localized development seed content', () => {
   const seed = getUpdateSeed('zh');
   assert.equal(seed.seed, true);
-  assert.equal(seed.displayVersion, 'v1.1.0');
+  assert.equal(seed.displayVersion, 'v1.2.0');
   assert.deepEqual(seed.notes.split('\n'), [
-    '[功能] 现在 账户 / 密码 / 2FA 均可进行一键填充.',
-    '[功能] 增加官方游戏公告, 将显示最近三条, 支持在MT-Aigis中预览与跳转.',
-    '[功能] 现在允许自定义游戏链接.',
-    '[优化] 优化游戏页面裁切, 修复了旧版本的黑边.',
+    '[功能] 新增窗口置顶功能，可从标题栏快速切换并记住设置。',
+    '[功能] 新增可选的匿名使用人数统计，并在首次启动时明确征求同意。',
+    '[体验] 公告和更新提示迁移到原生浮层，游戏会在提示期间继续加载和运行。',
+    '[体验] 侧栏、窗口大小和游戏画面现在会实时同步调整。',
+    '[优化] 重构 DMM / FANZA 启动流程，只在真实游戏内容就绪后显示画面。',
+    '[性能] 优化游戏域名预连接、缓存读取和侧栏滚动期间的后台刷新。',
+    '[外观] 统一深色模式界面，并修正加载占位尺寸。',
   ]);
   assert.equal(seed.url, 'https://github.com/KaguraMatsuri/MT-Aigis/releases');
 });
