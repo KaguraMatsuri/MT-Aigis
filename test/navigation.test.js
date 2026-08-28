@@ -127,6 +127,24 @@ test('keeps native title-bar zoom and window resizing synchronized with the game
   assert.match(main, /mainWindow\.isMaximized\(\)[\s\S]*?mainWindow\.unmaximize\(\)[\s\S]*?mainWindow\.maximize\(\)/);
 });
 
+test('keeps sidebar scrolling free from live blur and periodic DOM refreshes', () => {
+  const root = path.join(__dirname, '..');
+  const styles = fs.readFileSync(path.join(root, 'ui', 'sidebar.css'), 'utf8');
+  const renderer = fs.readFileSync(path.join(root, 'ui', 'sidebar.js'), 'utf8');
+
+  assert.doesNotMatch(styles, /#sidebar \{[^}]*backdrop-filter:/);
+  assert.match(styles, /\.sidebar-content \{[\s\S]*?transform: none;/);
+  assert.match(styles, /#sidebar \{[^}]*overflow: hidden;/);
+  assert.match(styles, /\.sidebar-content \{[^}]*overflow: hidden auto;[^}]*contain: layout paint style;/);
+  assert.match(renderer, /document\.querySelector\('\.sidebar-content'\)\.addEventListener\('scroll',[\s\S]*?\{ passive: true \}/);
+  assert.match(renderer, /function refreshBrowserState\(deferWhileScrolling\)[\s\S]*?deferWhileScrolling && sidebarScrolling/);
+  assert.match(renderer, /refreshBrowserState\(true\)/);
+  assert.match(renderer, /refreshCache\(false, true\)/);
+  assert.match(renderer, /refreshVault\(true\)/);
+  assert.doesNotMatch(renderer, /\.then\(refreshBrowserState\)/);
+  assert.match(renderer, /!sidebarScrolling &&[\s\S]*?byId\('page-vault'\)\.classList\.contains\('active'\)/);
+});
+
 test('keeps the saved address outside app updates and clears the whole browsing session', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
 

@@ -8,6 +8,8 @@
   var gameNewsState = null;
   var currentGameNewsUrl = '';
   var sidebarTransitionTask = null;
+  var sidebarScrolling = false;
+  var sidebarScrollIdleTimer = null;
   var customUrlEditing = false;
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
@@ -488,8 +490,10 @@
     }
   }
 
-  function refreshBrowserState() {
+  function refreshBrowserState(deferWhileScrolling) {
+    if (deferWhileScrolling && sidebarScrolling) return Promise.resolve(null);
     return api.invoke('browser:state').then(function (browser) {
+      if (deferWhileScrolling && sidebarScrolling) return null;
       byId('page-title').textContent = browser.title || 'MT-Aigis';
       byId('page-url').textContent = browser.url || 'https://play.games.dmm.com/game/aigisc';
       byId('top-status').textContent = browser.loading ? t('loading') : t('gameSession');
@@ -502,6 +506,7 @@
         byId('btn-reload').disabled = false;
       }
     }).catch(function (error) {
+      if (deferWhileScrolling && sidebarScrolling) return null;
       byId('top-status').textContent = t('error');
       setRuntime(errorText(error), true);
     });
@@ -644,8 +649,14 @@
     byId('cache-disk').textContent = formatBytes(stats.diskBytes || stats.httpBytes || 0);
   }
 
-  function refreshCache(force) {
-    return api.invoke('cache:stats', !!force).then(renderCache).catch(function () {
+  function refreshCache(force, deferWhileScrolling) {
+    if (deferWhileScrolling && sidebarScrolling) return Promise.resolve(null);
+    return api.invoke('cache:stats', !!force).then(function (stats) {
+      if (deferWhileScrolling && sidebarScrolling) return null;
+      renderCache(stats);
+      return stats;
+    }).catch(function () {
+      if (deferWhileScrolling && sidebarScrolling) return null;
       byId('cache-disk').textContent = t('readFailed');
     });
   }
@@ -673,8 +684,14 @@
     updateTotpProgress();
   }
 
-  function refreshVault() {
-    return api.invoke('vault:status').then(renderVault).catch(function (error) {
+  function refreshVault(deferWhileScrolling) {
+    if (deferWhileScrolling && sidebarScrolling) return Promise.resolve(null);
+    return api.invoke('vault:status').then(function (state) {
+      if (deferWhileScrolling && sidebarScrolling) return null;
+      renderVault(state);
+      return state;
+    }).catch(function (error) {
+      if (deferWhileScrolling && sidebarScrolling) return null;
       setVaultMessage(errorText(error), true);
     });
   }
@@ -759,6 +776,13 @@
   byId('btn-toggle-sidebar').addEventListener('click', function () {
     toggleSidebar();
   });
+  document.querySelector('.sidebar-content').addEventListener('scroll', function () {
+    sidebarScrolling = true;
+    clearTimeout(sidebarScrollIdleTimer);
+    sidebarScrollIdleTimer = setTimeout(function () {
+      sidebarScrolling = false;
+    }, 160);
+  }, { passive: true });
   byId('btn-back').addEventListener('click', function () { api.invoke('browser:navigate', 'back'); });
   byId('btn-forward').addEventListener('click', function () { api.invoke('browser:navigate', 'forward'); });
   byId('btn-reload').addEventListener('click', function () {
@@ -809,10 +833,18 @@
     event.preventDefault();
     respondToUpdatePrompt('later');
   });
-  byId('btn-zoom-out').addEventListener('click', function () { api.invoke('browser:navigate', 'zoom-out').then(refreshBrowserState); });
-  byId('btn-zoom-reset').addEventListener('click', function () { api.invoke('browser:navigate', 'zoom-reset').then(refreshBrowserState); });
-  byId('btn-zoom-in').addEventListener('click', function () { api.invoke('browser:navigate', 'zoom-in').then(refreshBrowserState); });
-  byId('btn-mute').addEventListener('click', function () { api.invoke('browser:navigate', 'mute-toggle').then(refreshBrowserState); });
+  byId('btn-zoom-out').addEventListener('click', function () {
+    api.invoke('browser:navigate', 'zoom-out').then(function () { return refreshBrowserState(); });
+  });
+  byId('btn-zoom-reset').addEventListener('click', function () {
+    api.invoke('browser:navigate', 'zoom-reset').then(function () { return refreshBrowserState(); });
+  });
+  byId('btn-zoom-in').addEventListener('click', function () {
+    api.invoke('browser:navigate', 'zoom-in').then(function () { return refreshBrowserState(); });
+  });
+  byId('btn-mute').addEventListener('click', function () {
+    api.invoke('browser:navigate', 'mute-toggle').then(function () { return refreshBrowserState(); });
+  });
   byId('btn-ping-all').addEventListener('click', function () {
     Object.keys(pingFields).forEach(runPing);
     refreshNetworkStatus(false);
@@ -911,14 +943,21 @@
   refreshGameNews(false);
   refreshCache(true);
   setTimeout(function () { Object.keys(pingFields).forEach(runPing); }, 700);
-  setInterval(refreshBrowserState, 2000);
-  setInterval(function () { refreshCache(false); }, 15000);
+  setInterval(function () {
+    if (!sidebarScrolling) refreshBrowserState(true);
+  }, 2000);
+  setInterval(function () {
+    if (!sidebarScrolling) refreshCache(false, true);
+  }, 15000);
   setInterval(function () { refreshGameNews(false); }, 30 * 60 * 1000);
   setInterval(function () {
-    updateTotpProgress();
     if (
+      !sidebarScrolling &&
       byId('page-vault').classList.contains('active') &&
       byId('vault-edit').classList.contains('hidden')
-    ) refreshVault();
+    ) {
+      updateTotpProgress();
+      refreshVault(true);
+    }
   }, 1000);
 })();

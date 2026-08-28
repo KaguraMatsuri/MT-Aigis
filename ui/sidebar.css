@@ -230,8 +230,6 @@ body.sidebar-collapsed #game-loading-surface {
   overflow: hidden;
   background: var(--sidebar);
   border-left: 1px solid var(--line);
-  backdrop-filter: saturate(140%) blur(24px);
-  -webkit-backdrop-filter: saturate(140%) blur(24px);
   transition:
     width var(--sidebar-transition-duration) var(--sidebar-transition-easing),
     background-color var(--sidebar-transition-duration) ease,
@@ -280,6 +278,7 @@ body.sidebar-collapsed #game-loading-surface {
   overflow: hidden auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  contain: layout paint style;
   opacity: 1;
   transform: none;
   visibility: visible;
