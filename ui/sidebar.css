@@ -123,6 +123,16 @@ button:disabled {
   font-size: 12px;
 }
 
+#titlebar-double-click-zone {
+  position: absolute;
+  z-index: 1;
+  left: 88px;
+  right: calc(min(520px, 42vw) + 24px);
+  bottom: 0;
+  height: calc(var(--top-bar-height) / 2);
+  -webkit-app-region: no-drag;
+}
+
 #game-loading-surface {
   position: fixed;
   z-index: 0;

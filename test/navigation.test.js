@@ -107,6 +107,26 @@ test('keeps the sidebar toggle independent and resizes the live game in sync', (
   assert.doesNotMatch(main, /dumpPageState|focusTimers/);
 });
 
+test('keeps native title-bar zoom and window resizing synchronized with the game view', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'ui', 'sidebar.css'), 'utf8');
+  const renderer = fs.readFileSync(path.join(root, 'ui', 'sidebar.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+
+  assert.match(main, /mainWindow\.on\('resize', updateLayout\)/);
+  assert.match(main, /'resized',[\s\S]*?'maximize',[\s\S]*?'unmaximize'/);
+  assert.match(main, /mainWindow\.on\(eventName, \(\) => updateLayout\(false\)\)/);
+  assert.match(main, /layoutPresentationTimer = setTimeout\(\(\) => \{[\s\S]*?applyGamePresentation\(\)/);
+  assert.match(main, /debounce === false \? 20 : 90/);
+  assert.match(main, /overlayState\) applyOverlayBounds\(\)/);
+  assert.match(html, /id="titlebar-double-click-zone"/);
+  assert.match(styles, /#titlebar-double-click-zone \{[\s\S]*?bottom: 0;[\s\S]*?-webkit-app-region: no-drag;/);
+  assert.match(renderer, /titlebar-double-click-zone'\)\.addEventListener\('dblclick'/);
+  assert.match(main, /ipcMain\.handle\('window:titlebar-toggle'/);
+  assert.match(main, /mainWindow\.isMaximized\(\)[\s\S]*?mainWindow\.unmaximize\(\)[\s\S]*?mainWindow\.maximize\(\)/);
+});
+
 test('keeps the saved address outside app updates and clears the whole browsing session', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
 

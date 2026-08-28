@@ -752,6 +752,10 @@
     });
   });
 
+  byId('titlebar-double-click-zone').addEventListener('dblclick', function () {
+    api.invoke('window:titlebar-toggle');
+  });
+
   byId('btn-toggle-sidebar').addEventListener('click', function () {
     toggleSidebar();
   });

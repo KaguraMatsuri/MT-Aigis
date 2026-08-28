@@ -246,6 +246,7 @@ let gameViewLoadingMasked = true;
 let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
 let layoutPending = false;
+let layoutPresentationTimer = null;
 let sidebarTransitionActive = false;
 let resourceStats = createResourceStats();
 let cacheStatsCache = null;
@@ -828,8 +829,9 @@ function createWindow() {
     mainWindow.show();
     mainWindow.focus();
   });
+  mainWindow.on('resize', updateLayout);
   for (const eventName of [
-    'resize',
+    'resized',
     'maximize',
     'unmaximize',
     'restore',
@@ -837,7 +839,7 @@ function createWindow() {
     'enter-full-screen',
     'leave-full-screen',
   ]) {
-    mainWindow.on(eventName, updateLayout);
+    mainWindow.on(eventName, () => updateLayout(false));
   }
   mainWindow.webContents.on('before-input-event', (event, input) => {
     forwardNativeEditShortcut(mainWindow.webContents, input);
@@ -845,6 +847,8 @@ function createWindow() {
   mainWindow.on('closed', () => {
     gameContentReady = false;
     layoutPending = false;
+    if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
+    layoutPresentationTimer = null;
     gameViewAttached = false;
     if (updatePrompt) {
       updatePrompt.resolve('later');
@@ -1177,20 +1181,15 @@ function updateLayout(debounce) {
   layoutPending = true;
   var apply = function () {
     layoutPending = false;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
     if (overlayState) applyOverlayBounds();
-    if (!mainWindow || !gameView || !gameViewAttached) return;
-    var size = mainWindow.getContentSize();
-    var width = size[0], height = size[1];
-    var sidebarW = sidebarCollapsed ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH;
-    var viewWidth = Math.max(1, width - sidebarW);
-    var viewHeight = Math.max(1, height - TOP_BAR_H - BOTTOM_BAR_H);
-    gameView.setBounds({
-      x: 0,
-      y: TOP_BAR_H,
-      width: viewWidth,
-      height: viewHeight,
-    });
-    setTimeout(applyGamePresentation, 20);
+    if (!gameView || !gameViewAttached) return;
+    applyGameViewBounds();
+    if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
+    layoutPresentationTimer = setTimeout(() => {
+      layoutPresentationTimer = null;
+      applyGamePresentation();
+    }, debounce === false ? 20 : 90);
   };
   if (debounce === false) { apply(); }
   else { setImmediate(apply); }
@@ -1864,6 +1863,18 @@ ipcMain.handle('browser:navigate', async (_, action) => {
   if (action === 'mute-toggle') {
     gameView.webContents.setAudioMuted(!gameView.webContents.isAudioMuted());
   }
+  return true;
+});
+
+ipcMain.handle('window:titlebar-toggle', (event) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id ||
+    mainWindow.isFullScreen()
+  ) return false;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
   return true;
 });
 
