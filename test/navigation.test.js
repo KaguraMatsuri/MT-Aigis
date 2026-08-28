@@ -45,16 +45,41 @@ test('places the compact editable address control in the top bar', () => {
   assert.match(main, /const targetUrl = getHomeUrl\(\)/);
 });
 
-test('reveals only playable Aigis content after its adapters are ready', () => {
+test('keeps the sidebar toggle independent and resizes the live game in sync', () => {
   const root = path.join(__dirname, '..');
   const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'ui', 'sidebar.css'), 'utf8');
+  const renderer = fs.readFileSync(path.join(root, 'ui', 'sidebar.js'), 'utf8');
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
   const gameFocus = fs.readFileSync(path.join(root, 'resources', 'game-focus.js'), 'utf8');
   const containerFocus = fs.readFileSync(path.join(root, 'resources', 'game-container-focus.js'), 'utf8');
+  const togglePosition = html.indexOf('id="btn-toggle-sidebar"');
+  const sidebarPosition = html.indexOf('<aside id="sidebar">');
 
+  assert.ok(togglePosition > 0 && togglePosition < sidebarPosition);
+  assert.match(html, /aria-controls="sidebar" aria-expanded="true"/);
   assert.match(html, /id="game-loading-surface" aria-hidden="true"/);
   assert.match(styles, /\.game-loading-frame \{[\s\S]*?background: #101011;/);
+  assert.match(styles, /body\.sidebar-collapsed #game-loading-surface \{\s*right: var\(--sidebar-collapsed-width\);/);
+  assert.match(styles, /#btn-toggle-sidebar \{[\s\S]*?position: fixed;/);
+  assert.match(styles, /#sidebar\.collapsed \{[\s\S]*?border-left-color: transparent;/);
+  assert.match(styles, /#sidebar\.collapsed::before \{\s*opacity: 0;/);
+  assert.match(styles, /\.sidebar-content \{[\s\S]*?transition:/);
+  assert.match(styles, /#btn-toggle-sidebar \{[\s\S]*?right: 7px;/);
+  assert.doesNotMatch(styles, /body\.sidebar-collapsed #btn-toggle-sidebar/);
+  assert.match(styles, /\.sidebar-toggle-glyph \{[\s\S]*?transform-origin: 50% 50%;[\s\S]*?transition: transform/);
+  assert.match(styles, /body\.sidebar-collapsed \.sidebar-toggle-glyph \{\s*transform: rotate\(180deg\);/);
+  assert.doesNotMatch(styles, /#btn-toggle-sidebar:active[\s\S]*?transform:/);
+  assert.doesNotMatch(renderer, /sidebarToggleRotation/);
+  assert.doesNotMatch(renderer, /toggleGlyph\.textContent/);
+  assert.match(renderer, /toggleButton\.setAttribute\('aria-expanded', String\(!collapsed\)\)/);
+  assert.match(renderer, /function toggleSidebar\(\) \{[\s\S]*?waitForSidebarTransition\(sidebar\)/);
+  assert.doesNotMatch(renderer, /sidebar:resize-frame/);
+  assert.doesNotMatch(main, /setTimeout\(step, 16\)/);
+  assert.doesNotMatch(main, /ipcMain\.handle\('sidebar:resize-frame'/);
+  assert.match(main, /prepareViewportTransition/);
+  assert.match(gameFocus, /beginViewportTransition/);
+  assert.match(gameFocus, /left \$\{duration\}ms cubic-bezier/);
   assert.match(main, /did-start-navigation[\s\S]*?gameViewLoadingMasked = isGameUrl\(url\)/);
   assert.match(main, /pathname = parsed\.pathname\.toLowerCase\(\)/);
   assert.match(main, /function markGameContentReady\(\)[\s\S]*?Promise\.all\(\[applyGamePresentation\(\), focusAllGameContainers\(\)\]\)\.finally[\s\S]*?gameViewLoadingMasked = false;[\s\S]*?syncGameViewVisibility\(\)/);
@@ -68,6 +93,17 @@ test('reveals only playable Aigis content after its adapters are ready', () => {
   assert.match(gameFocus, /observer\.disconnect\(\);[\s\S]*?observerActive = false/);
   assert.match(gameFocus, /left', `calc\(50% - \$\{GAME_WIDTH \/ 2\}px\)`/);
   assert.match(gameFocus, /reason: 'game-content-loading'/);
+  assert.match(gameFocus, /transform \$\{duration\}ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/);
+  assert.match(gameFocus, /animateUserScale/);
+  assert.match(gameFocus, /waitForFrameTransition\(\s*frame,\s*'left'/);
+  assert.match(gameFocus, /waitForFrameTransition\(\s*frame,\s*'transform'[\s\S]*?true\s*\)/);
+  assert.match(gameFocus, /if \(clearStyle\) setStyle\(frame, 'transition', 'none'\)/);
+  assert.match(gameFocus, /cancelTransitionFrame\(frame, true\)/);
+  assert.match(gameFocus, /getComputedStyle\(frame\)[\s\S]*?computed\.transform/);
+  assert.match(gameFocus, /prefersReducedMotion/);
+  assert.match(renderer, /prefers-reduced-motion: reduce/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.sidebar-toggle-glyph[\s\S]*?transition: none !important;/);
+  assert.match(main, /applyGamePresentation\(\{ animateScale: true, duration: 180 \}\)/);
   assert.doesNotMatch(main, /dumpPageState|focusTimers/);
 });
 

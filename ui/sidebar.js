@@ -7,6 +7,7 @@
   var vaultState = null;
   var gameNewsState = null;
   var currentGameNewsUrl = '';
+  var sidebarTransitionTask = null;
   var customUrlEditing = false;
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
@@ -415,10 +416,51 @@
     var sidebar = byId('sidebar');
     sidebar.classList.toggle('collapsed', collapsed);
     document.body.classList.toggle('sidebar-collapsed', collapsed);
-    byId('btn-toggle-sidebar').textContent = collapsed ? '›' : '‹';
-    byId('btn-toggle-sidebar').title = collapsed ? t('expandSidebar') : t('collapseSidebar');
-    byId('btn-toggle-sidebar').setAttribute('aria-label', collapsed ? t('expandSidebar') : t('collapseSidebar'));
+    var toggleButton = byId('btn-toggle-sidebar');
+    toggleButton.title = collapsed ? t('expandSidebar') : t('collapseSidebar');
+    toggleButton.setAttribute('aria-label', collapsed ? t('expandSidebar') : t('collapseSidebar'));
+    toggleButton.setAttribute('aria-expanded', String(!collapsed));
     if (notifyMain) api.invoke('sidebar:toggle', collapsed ? 'collapse' : 'expand');
+  }
+
+  function waitForSidebarTransition(sidebar) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return Promise.resolve(true);
+    }
+    return new Promise(function (resolve) {
+      var settled = false;
+      var fallbackTimer = null;
+      var finish = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
+        sidebar.removeEventListener('transitionend', onTransitionEnd);
+        resolve(true);
+      };
+      var onTransitionEnd = function (event) {
+        if (event.target === sidebar && event.propertyName === 'width') finish();
+      };
+      sidebar.addEventListener('transitionend', onTransitionEnd);
+      fallbackTimer = setTimeout(finish, 280);
+    });
+  }
+
+  function toggleSidebar() {
+    if (sidebarTransitionTask) return sidebarTransitionTask;
+    var sidebar = byId('sidebar');
+    var collapsed = !sidebar.classList.contains('collapsed');
+    var state = collapsed ? 'collapse' : 'expand';
+    var transitionReady = api.invoke('sidebar:transition-start', state).catch(function () { return false; });
+    applySidebarState(collapsed, false);
+    sidebarTransitionTask = Promise.all([
+      transitionReady,
+      waitForSidebarTransition(sidebar),
+    ]).then(function () {
+      return api.invoke('sidebar:toggle', state);
+    }).finally(function () {
+      sidebarTransitionTask = null;
+    });
+    return sidebarTransitionTask;
   }
 
   function syncMuteState(isMuted) {
@@ -711,7 +753,7 @@
   });
 
   byId('btn-toggle-sidebar').addEventListener('click', function () {
-    applySidebarState(!byId('sidebar').classList.contains('collapsed'), true);
+    toggleSidebar();
   });
   byId('btn-back').addEventListener('click', function () { api.invoke('browser:navigate', 'back'); });
   byId('btn-forward').addEventListener('click', function () { api.invoke('browser:navigate', 'forward'); });

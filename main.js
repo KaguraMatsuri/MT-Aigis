@@ -246,6 +246,7 @@ let gameViewLoadingMasked = true;
 let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
 let layoutPending = false;
+let sidebarTransitionActive = false;
 let resourceStats = createResourceStats();
 let cacheStatsCache = null;
 let cacheStatsAt = 0;
@@ -1195,6 +1196,24 @@ function updateLayout(debounce) {
   else { setImmediate(apply); }
 }
 
+function applyGameViewBounds(sidebarWidth) {
+  if (!mainWindow || !gameView || gameView.webContents.isDestroyed()) return false;
+  var size = mainWindow.getContentSize();
+  var width = size[0], height = size[1];
+  var sidebarW = Math.round(Number.isFinite(sidebarWidth)
+    ? Math.min(SIDEBAR_OPEN_WIDTH, Math.max(SIDEBAR_CLOSED_WIDTH, sidebarWidth))
+    : sidebarCollapsed ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH);
+  var viewWidth = Math.max(1, width - sidebarW);
+  var viewHeight = Math.max(1, height - TOP_BAR_H - BOTTOM_BAR_H);
+  gameView.setBounds({
+    x: 0,
+    y: TOP_BAR_H,
+    width: viewWidth,
+    height: viewHeight,
+  });
+  return true;
+}
+
 function attachNavigationHandlers() {
   gameView.webContents.on('page-title-updated', (_, title) => {
     debugLog('page-title', title);
@@ -1456,7 +1475,7 @@ function setZoomFactor(value) {
   const zoomFactor = normalizeZoomFactor(value);
   currentConfig.view.zoomFactor = zoomFactor;
   store.save(currentConfig);
-  applyGamePresentation();
+  applyGamePresentation({ animateScale: true, duration: 180 });
   return zoomFactor;
 }
 
@@ -1772,10 +1791,11 @@ function installAllGameFrameAdapters() {
   } catch (_) {}
 }
 
-function applyGamePresentation() {
+function applyGamePresentation(options) {
   if (!gameView || gameView.webContents.isDestroyed()) return Promise.resolve(null);
   if (!isGameUrl(gameView.webContents.getURL())) return Promise.resolve(null);
   const zoomFactor = getZoomFactor();
+  const presentationOptions = options || {};
   return gameView.webContents.executeJavaScript(
     `(() => {
       if (!window.__MT_GAME_FOCUS__) return null;
@@ -1784,6 +1804,8 @@ function applyGamePresentation() {
         fill: gameFillColor(),
         ring: gameRingColor(),
         userScale: zoomFactor,
+        animateScale: !!presentationOptions.animateScale,
+        duration: presentationOptions.duration,
       })});
     })()`
   ).then((result) => {
@@ -1965,6 +1987,32 @@ ipcMain.handle('native-overlay:update-respond', (event, action) => {
     overlayState.kind !== 'app-update'
   ) return false;
   return resolveUpdatePrompt(action);
+});
+
+ipcMain.handle('sidebar:transition-start', async (event, state) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id ||
+    !gameView ||
+    gameView.webContents.isDestroyed() ||
+    !gameViewAttached
+  ) return false;
+  const targetSidebarWidth = state === 'collapse' ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH;
+  const size = mainWindow.getContentSize();
+  sidebarTransitionActive = true;
+  await gameView.webContents.executeJavaScript(
+    'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.prepareViewportTransition() : null'
+  ).catch(() => null);
+  applyGameViewBounds(targetSidebarWidth);
+  await gameView.webContents.executeJavaScript(
+    `window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.beginViewportTransition(${JSON.stringify({
+      width: Math.max(1, size[0] - targetSidebarWidth),
+      height: Math.max(1, size[1] - TOP_BAR_H - BOTTOM_BAR_H),
+      duration: 200,
+    })}) : null`
+  ).catch(() => null);
+  return true;
 });
 
 ipcMain.handle('scroll:set-level', (_, level) => {
@@ -2161,13 +2209,21 @@ ipcMain.handle('clipboard:write', (_, value) => {
   return true;
 });
 
-ipcMain.handle('sidebar:toggle', (_, state) => {
+ipcMain.handle('sidebar:toggle', async (_, state) => {
   if (!mainWindow || !gameView) return;
   sidebarCollapsed = state === 'collapse';
   currentConfig.view.sidebarCollapsed = sidebarCollapsed;
   store.save(currentConfig);
   sendToRenderer('sidebar:state', { collapsed: sidebarCollapsed });
-  updateLayout(false);
+  applyGameViewBounds();
+  if (sidebarTransitionActive) {
+    sidebarTransitionActive = false;
+    await gameView.webContents.executeJavaScript(
+      'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.endViewportTransition() : null'
+    ).catch(() => null);
+  } else {
+    await applyGamePresentation();
+  }
   return { collapsed: sidebarCollapsed };
 });
 
