@@ -412,12 +412,62 @@ h2 {
 }
 
 .custom-url-control {
+  position: relative;
+  z-index: 2;
   width: min(520px, 42vw);
   margin-left: auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px;
+  grid-template-columns: 28px minmax(0, 1fr) 70px;
   gap: 6px;
   -webkit-app-region: no-drag;
+}
+
+.titlebar-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 120ms ease;
+}
+
+.titlebar-icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: rotate(-35deg);
+  transition: transform 160ms ease;
+}
+
+.titlebar-icon-button:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-strong) 72%, transparent);
+}
+
+.titlebar-icon-button:active {
+  transform: scale(0.92);
+}
+
+.titlebar-icon-button[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 75%, var(--line));
+}
+
+.titlebar-icon-button[aria-pressed="true"] svg {
+  transform: rotate(0deg);
 }
 
 .custom-url-control input {

@@ -796,6 +796,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  mainWindow.setAlwaysOnTop(!!currentConfig.view.alwaysOnTop);
 
   mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
   mainWindow.once('ready-to-show', () => {
@@ -1028,6 +1029,7 @@ function normalizeConfig(rawConfig) {
       scrollLevel: normalizeScrollLevel(source.view && source.view.scrollLevel),
       language: normalizeLanguage(source.view && source.view.language),
       customUrl: normalizeCustomUrl(source.view && source.view.customUrl) || '',
+      alwaysOnTop: !!(source.view && source.view.alwaysOnTop),
     },
     session: {
       ...base.session,
@@ -1871,6 +1873,18 @@ ipcMain.handle('window:titlebar-toggle', (event) => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
   else mainWindow.maximize();
   return true;
+});
+
+ipcMain.handle('window:always-on-top:set', (event, enabled) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) return { alwaysOnTop: false };
+  mainWindow.setAlwaysOnTop(!!enabled);
+  currentConfig.view.alwaysOnTop = mainWindow.isAlwaysOnTop();
+  store.save(currentConfig);
+  return { alwaysOnTop: currentConfig.view.alwaysOnTop };
 });
 
 ipcMain.handle('browser:custom-url:set', (event, rawUrl) => {

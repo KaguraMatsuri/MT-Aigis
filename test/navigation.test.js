@@ -39,6 +39,7 @@ test('places the compact editable address control in the top bar', () => {
 
   assert.match(header, /id="custom-url"/);
   assert.match(header, /id="btn-custom-url"/);
+  assert.match(header, /id="btn-always-on-top"[\s\S]*?aria-pressed="false"/);
   assert.match(renderer, /browser:custom-url:set/);
   assert.match(renderer, /input\.readOnly = !customUrlEditing/);
   assert.match(main, /currentConfig\.view\.customUrl = customUrl/);
@@ -169,4 +170,19 @@ test('keeps the saved address outside app updates and clears the whole browsing 
   assert.match(main, /storages: \['serviceworkers', 'cachestorage', 'shadercache'\]/);
   assert.match(main, /await session\.clearStorageData\(\{ storages: \['cookies'\] \}\)/);
   assert.doesNotMatch(main, /clearStorageData\(\{\s*origin:/);
+});
+
+test('persists and applies the native always-on-top window setting', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(root, 'ui', 'sidebar.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+
+  assert.equal(defaultConfig().view.alwaysOnTop, false);
+  assert.match(html, /<header id="chrome-bar">[\s\S]*?id="btn-always-on-top"[\s\S]*?id="custom-url"/);
+  assert.match(renderer, /window:always-on-top:set/);
+  assert.match(renderer, /applyAlwaysOnTopState\(!!\(config\.view && config\.view\.alwaysOnTop\)\)/);
+  assert.match(main, /mainWindow\.setAlwaysOnTop\(!!currentConfig\.view\.alwaysOnTop\)/);
+  assert.match(main, /ipcMain\.handle\('window:always-on-top:set'/);
+  assert.match(main, /currentConfig\.view\.alwaysOnTop = mainWindow\.isAlwaysOnTop\(\)/);
 });

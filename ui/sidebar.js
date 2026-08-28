@@ -14,6 +14,8 @@
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
   var currentLanguage = 'zh';
+  var alwaysOnTopEnabled = false;
+  var alwaysOnTopRequestPending = false;
   var scrollLabels = {
     zh: ['极缓', '缓慢', '标准', '灵敏', '快速'],
     en: ['Very slow', 'Slow', 'Normal', 'Responsive', 'Fast'],
@@ -53,6 +55,8 @@
       language: '语言',
       languageHelp: '默认跟随系统语言。',
       langAuto: '自动',
+      pinWindow: '窗口置顶',
+      unpinWindow: '取消置顶',
       updates: '更新',
       checkNow: '检查',
       version: '版本',
@@ -158,6 +162,8 @@
       language: 'Language',
       languageHelp: 'Follows system language by default.',
       langAuto: 'Auto',
+      pinWindow: 'Keep Window on Top',
+      unpinWindow: 'Stop Keeping Window on Top',
       updates: 'Updates',
       checkNow: 'Check',
       version: 'Version',
@@ -263,6 +269,8 @@
       language: '言語',
       languageHelp: '既定ではシステム言語に従います。',
       langAuto: '自動',
+      pinWindow: 'ウインドウを最前面に表示',
+      unpinWindow: '最前面表示を解除',
       updates: '更新',
       checkNow: '確認',
       version: 'バージョン',
@@ -388,6 +396,14 @@
     element.classList.toggle('error', !!isError);
   }
 
+  function applyAlwaysOnTopState(enabled) {
+    alwaysOnTopEnabled = !!enabled;
+    var button = byId('btn-always-on-top');
+    button.setAttribute('aria-pressed', String(alwaysOnTopEnabled));
+    button.setAttribute('aria-label', t(alwaysOnTopEnabled ? 'unpinWindow' : 'pinWindow'));
+    button.title = t(alwaysOnTopEnabled ? 'unpinWindow' : 'pinWindow');
+  }
+
   function applyLanguage(language) {
     currentLanguage = ['zh', 'en', 'ja'].indexOf(language) >= 0 ? language : 'zh';
     document.documentElement.lang = currentLanguage === 'zh' ? 'zh-CN' : currentLanguage;
@@ -401,6 +417,7 @@
     byId('btn-custom-url').textContent = t(customUrlEditing ? 'save' : 'custom');
     byId('runtime-message').textContent = byId('runtime-message').textContent || t('ready');
     syncMuteState(byId('btn-mute').classList.contains('muted'));
+    applyAlwaysOnTopState(alwaysOnTopEnabled);
     updateScrollControl(byId('scroll-level').value || 5);
     if (gameNewsState) renderGameNews(gameNewsState);
   }
@@ -820,6 +837,21 @@
       setSettingsMessage(t('languageSaved'), false);
     });
   });
+  byId('btn-always-on-top').addEventListener('click', function () {
+    if (alwaysOnTopRequestPending) return;
+    var previous = alwaysOnTopEnabled;
+    var next = !previous;
+    alwaysOnTopRequestPending = true;
+    applyAlwaysOnTopState(next);
+    api.invoke('window:always-on-top:set', next).then(function (state) {
+      applyAlwaysOnTopState(!!(state && state.alwaysOnTop));
+    }).catch(function (error) {
+      applyAlwaysOnTopState(previous);
+      setRuntime(errorText(error), true);
+    }).finally(function () {
+      alwaysOnTopRequestPending = false;
+    });
+  });
   byId('btn-check-update').addEventListener('click', function () {
     api.invoke('update:check').then(updateUpdateState);
   });
@@ -927,6 +959,7 @@
     applySidebarState(!!(config.view && config.view.sidebarCollapsed), false);
     updateScrollControl(config.view && config.view.scrollLevel || 5);
     byId('language-select').value = config.view && config.view.language || 'auto';
+    applyAlwaysOnTopState(!!(config.view && config.view.alwaysOnTop));
     applyLanguage(config.view && config.view.effectiveLanguage || 'zh');
     applyCustomUrlState({
       homeUrl: config.view && config.view.customUrl || 'https://play.games.dmm.com/game/aigisc',
