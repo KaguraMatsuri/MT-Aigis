@@ -6,7 +6,15 @@ const {
   getAutofillValues,
   isTrustedAutofillUrl,
 } = require('../lib/autofill');
-const { planTotpValues } = require('../resources/dmm-autofill-preload');
+const { isGameLaunchUrl, planTotpValues } = require('../resources/dmm-autofill-preload');
+
+test('masks both DMM and FANZA launch pages before their game frame is ready', () => {
+  assert.equal(isGameLaunchUrl('https://play.games.dmm.com/game/aigisc'), true);
+  assert.equal(isGameLaunchUrl('https://play.games.dmm.com/game/aigis'), true);
+  assert.equal(isGameLaunchUrl('https://play.games.dmm.co.jp/game/aigis/'), true);
+  assert.equal(isGameLaunchUrl('https://accounts.dmm.com/service/login'), false);
+  assert.equal(isGameLaunchUrl('https://example.com/game/aigis'), false);
+});
 
 test('only trusts the exact HTTPS DMM accounts hosts', () => {
   assert.equal(isTrustedAutofillUrl('https://accounts.dmm.com/service/login/password'), true);

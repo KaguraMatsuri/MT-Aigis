@@ -138,7 +138,7 @@ test('normalizes an oversized game document when installed', () => {
   });
 });
 
-test('aligns each 960px game surface with its clipped 970px launcher frame', async (t) => {
+test('aligns the playable canvas and hides the auxiliary launcher frame', async (t) => {
   for (const launcher of ['aigis.html', 'aigis_all.html']) {
     await t.test(launcher, () => {
       const harness = createHarness({
@@ -148,14 +148,16 @@ test('aligns each 960px game surface with its clipped 970px launcher frame', asy
 
       harness.run();
 
-      for (const element of [harness.canvas, harness.mainFrame]) {
-        assert.equal(element.style.getPropertyValue('display'), 'block');
-        assert.equal(element.style.getPropertyPriority('display'), 'important');
-        assert.equal(element.style.getPropertyValue('margin-left'), '0');
-        assert.equal(element.style.getPropertyPriority('margin-left'), 'important');
-        assert.equal(element.style.getPropertyValue('margin-right'), '0');
-        assert.equal(element.style.getPropertyPriority('margin-right'), 'important');
-      }
+      assert.equal(harness.canvas.style.getPropertyValue('display'), 'block');
+      assert.equal(harness.canvas.style.getPropertyPriority('display'), 'important');
+      assert.equal(harness.canvas.style.getPropertyValue('margin-left'), '0');
+      assert.equal(harness.canvas.style.getPropertyPriority('margin-left'), 'important');
+      assert.equal(harness.canvas.style.getPropertyValue('margin-right'), '0');
+      assert.equal(harness.canvas.style.getPropertyPriority('margin-right'), 'important');
+      assert.equal(harness.mainFrame.style.getPropertyValue('display'), 'none');
+      assert.equal(harness.mainFrame.style.getPropertyPriority('display'), 'important');
+      assert.equal(harness.mainFrame.style.getPropertyValue('visibility'), 'hidden');
+      assert.equal(harness.mainFrame.style.getPropertyPriority('visibility'), 'important');
     });
   }
 });

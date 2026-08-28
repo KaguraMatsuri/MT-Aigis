@@ -118,6 +118,10 @@ const CACHE_DIRECTORIES = [
   'Shared Dictionary',
   'blob_storage',
 ];
+const GAME_AUXILIARY_FRAME_RULES = [
+  'https://drc1bk94f7rq8.cloudfront.net/00/html/main.htm',
+  'https://drc1bk94f7rq8.cloudfront.net/00/html/main_all.htm',
+];
 const APP_TEXT = {
   zh: {
     aboutMenu: '关于 MT-Aigis',
@@ -234,9 +238,11 @@ let gameViewFallbackHidden = false;
 let aboutWindow = null;
 let focusSource = '';
 let scrollSource = '';
+let containerFocusSource = '';
 let navigationMode = 'boot';
 let sessionFlushTimer = null;
-let focusTimers = [];
+let gameContentReady = false;
+let gameViewLoadingMasked = true;
 let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
 let layoutPending = false;
@@ -755,9 +761,28 @@ function isGameContentFrame(rawUrl) {
     const host = new URL(rawUrl).hostname.toLowerCase();
     return (
       host === 'osapi.dmm.com' ||
+      host === 'osapi.dmm.co.jp' ||
       host === 'drc1bk94f7rq8.cloudfront.net' ||
       host.endsWith('.millennium-war.net') ||
       host === 'millennium-war.net'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isPlayableGameFrame(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    return (
+      (
+        host === 'drc1bk94f7rq8.cloudfront.net' ||
+        host.endsWith('.millennium-war.net') ||
+        host === 'millennium-war.net'
+      ) &&
+      /\/aigis(?:_[a-z0-9-]+)?\.html?$/.test(pathname)
     );
   } catch {
     return false;
@@ -770,8 +795,8 @@ function createWindow() {
     mainWindow.focus();
     return;
   }
+  gameContentReady = false;
   layoutPending = false;
-  clearFocusTimers();
   debugLog('runtime', {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -817,7 +842,7 @@ function createWindow() {
     forwardNativeEditShortcut(mainWindow.webContents, input);
   });
   mainWindow.on('closed', () => {
-    clearFocusTimers();
+    gameContentReady = false;
     layoutPending = false;
     gameViewAttached = false;
     if (updatePrompt) {
@@ -856,6 +881,7 @@ function createGameView() {
 
   focusSource = loadResource('game-focus.js');
   scrollSource = loadResource('game-scroll.js');
+  containerFocusSource = loadResource('game-container-focus.js');
 
   mainWindow.contentView.addChildView(gameView);
   gameViewAttached = true;
@@ -890,9 +916,18 @@ function createGameView() {
         : frames.find((candidate) =>
           candidate.processId === frameProcessId && candidate.routingId === frameRoutingId
         );
-      installGameFrameAdapter(frame);
-      installAllGameFrameAdapters();
+      const adapterTask = installGameFrameAdapter(frame);
+      if (frame && isPlayableGameFrame(frame.url)) {
+        adapterTask.finally(markGameContentReady);
+      }
     } catch (_) {}
+  });
+
+  gameView.webContents.on('did-start-navigation', (_, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame || isInPlace) return;
+    gameContentReady = false;
+    gameViewLoadingMasked = isGameUrl(url);
+    syncGameViewVisibility();
   });
 
   gameView.webContents.setZoomFactor(1);
@@ -905,7 +940,10 @@ function createGameView() {
     else resourceStats.networkBytes += getResponseContentLength(details.responseHeaders);
     sendToRenderer('resource:count', { ...resourceStats });
   });
-  gameSession.webRequest.onBeforeRequest({ urls: TRACKER_RULES }, (_, callback) => callback({ cancel: true }));
+  gameSession.webRequest.onBeforeRequest(
+    { urls: [...TRACKER_RULES, ...GAME_AUXILIARY_FRAME_RULES] },
+    (_, callback) => callback({ cancel: true })
+  );
   gameSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
     details.requestHeaders['Accept-Language'] = 'ja,en-US;q=0.9,en;q=0.8';
     delete details.requestHeaders['X-Requested-With'];
@@ -934,12 +972,6 @@ function createGameView() {
     ) {
       navigationMode = 'game';
       scheduleSessionFlush('game-ready');
-      [250, 700, 1400, 2800, 5000].forEach((delay) => {
-        setTimeout(() => {
-          dumpPageState().catch(() => {});
-          injectGameFocus();
-        }, delay);
-      });
     }
   });
   gameSession.webRequest.onErrorOccurred({ urls: sessionLogUrls }, (details) => {
@@ -1028,12 +1060,6 @@ function effectiveLanguage() {
   if (locale.startsWith('ja')) return 'ja';
   if (locale.startsWith('zh')) return 'zh';
   return 'en';
-}
-
-function syncGameViewVisibility() {
-  if (!gameView || gameView.webContents.isDestroyed()) return false;
-  gameView.setVisible(!gameViewFallbackHidden);
-  return true;
 }
 
 function normalizeOverlayState(payload, previous) {
@@ -1186,7 +1212,6 @@ function attachNavigationHandlers() {
   });
 
   gameView.webContents.on('will-navigate', (event, url) => {
-    clearFocusTimers();
     const normalized = normalizeUrl(url);
     if (normalized !== url) {
       event.preventDefault();
@@ -1201,6 +1226,9 @@ function attachNavigationHandlers() {
   gameView.webContents.on('did-navigate', (_, url) => {
     resourceStats = createResourceStats();
     sendToRenderer('resource:count', { ...resourceStats });
+    gameContentReady = false;
+    gameViewLoadingMasked = isGameUrl(url);
+    syncGameViewVisibility();
     debugLog('did-navigate', url);
     handleMainFrameNavigation(url);
   });
@@ -1217,6 +1245,8 @@ function attachNavigationHandlers() {
     if (!isMainFrame) return;
     debugLog('did-fail-load', { errorCode, errorDescription, validatedURL });
     if (errorCode === -3) return;
+    gameViewLoadingMasked = false;
+    syncGameViewVisibility();
     sendToRenderer('browser:error', `${errorDescription} (${errorCode})`);
   });
 }
@@ -1281,6 +1311,9 @@ function loadGameHome() {
 function loadDirectGame(reason) {
   if (!gameView || gameView.webContents.isDestroyed()) return;
   const targetUrl = getHomeUrl();
+  gameContentReady = false;
+  gameViewLoadingMasked = isGameUrl(targetUrl);
+  syncGameViewVisibility();
   navigationMode = isGameUrl(targetUrl) ? 'game' : 'custom';
   debugLog('load-game', { reason, url: targetUrl });
   gameView.webContents.loadURL(targetUrl).catch((error) => {
@@ -1646,27 +1679,91 @@ function runPageAdapters() {
     injectGameFocus();
     installAllGameFrameAdapters();
   }
-  dumpPageState().catch(() => {});
+}
+
+function markGameContentReady() {
+  if (gameContentReady) return;
+  gameContentReady = true;
+  Promise.all([applyGamePresentation(), focusAllGameContainers()]).finally(() => {
+    if (!gameContentReady) return;
+    gameViewLoadingMasked = false;
+    syncGameViewVisibility();
+  });
+}
+
+function syncGameViewVisibility() {
+  if (!gameView || gameView.webContents.isDestroyed()) return false;
+  gameView.setVisible(!gameViewLoadingMasked && !gameViewFallbackHidden);
+  return true;
+}
+
+function isGameContainerFrame(rawUrl) {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return host === 'osapi.dmm.com' || host === 'osapi.dmm.co.jp';
+  } catch {
+    return false;
+  }
+}
+
+function focusGameContainer(frame) {
+  if (!containerFocusSource || !frame || !isGameContainerFrame(frame.url)) {
+    return Promise.resolve(null);
+  }
+  return frame.executeJavaScript(containerFocusSource)
+    .then((result) => {
+      if (result && result.fresh) debugLog('game-container-focus-installed', result);
+      return result;
+    })
+    .catch((error) => {
+      debugLog('game-container-focus-error', {
+        url: frame.url,
+        error: error && error.message ? error.message : String(error),
+      });
+      return null;
+    });
 }
 
 function installGameFrameAdapter(frame) {
-  if (!frame || !isGameContentFrame(frame.url)) return;
-  frame.executeJavaScript(scrollSource)
+  if (!frame || !isGameContentFrame(frame.url)) return Promise.resolve(null);
+  return Promise.all([
+    focusGameContainer(frame),
+    frame.executeJavaScript(scrollSource)
     .then((installResult) => {
       return frame.executeJavaScript(
         `window.__MT_AIGIS_SCROLL__ ? window.__MT_AIGIS_SCROLL__.setLevel(${getScrollLevel()}) : null`
       ).then((result) => {
         if (installResult && installResult.fresh) debugLog('game-frame-adapter', result);
+        return result;
       });
-    })
-    .catch((error) => debugLog('game-frame-adapter-error', {
+    }),
+  ]).catch((error) => {
+    debugLog('game-frame-adapter-error', {
       url: frame.url,
       error: error && error.message ? error.message : String(error),
-    }));
+    });
+    return null;
+  });
+}
+
+function focusAllGameContainers() {
+  if (!containerFocusSource || !gameView || gameView.webContents.isDestroyed()) {
+    return Promise.resolve([]);
+  }
+  try {
+    const root = gameView.webContents.mainFrame;
+    return Promise.all(
+      [root, ...root.framesInSubtree]
+        .filter((frame) => isGameContainerFrame(frame.url))
+        .map((frame) => focusGameContainer(frame))
+    );
+  } catch (_) {
+    return Promise.resolve([]);
+  }
 }
 
 function installAllGameFrameAdapters() {
-  if (!scrollSource || !gameView || gameView.webContents.isDestroyed()) return;
+  if ((!scrollSource && !containerFocusSource) || !gameView || gameView.webContents.isDestroyed()) return;
   try {
     const root = gameView.webContents.mainFrame;
     for (const frame of [root, ...root.framesInSubtree]) {
@@ -1676,86 +1773,41 @@ function installAllGameFrameAdapters() {
 }
 
 function applyGamePresentation() {
-  if (!gameView || gameView.webContents.isDestroyed()) return;
-  if (!isGameUrl(gameView.webContents.getURL())) return;
+  if (!gameView || gameView.webContents.isDestroyed()) return Promise.resolve(null);
+  if (!isGameUrl(gameView.webContents.getURL())) return Promise.resolve(null);
   const zoomFactor = getZoomFactor();
-  gameView.webContents.executeJavaScript(
+  return gameView.webContents.executeJavaScript(
     `(() => {
       if (!window.__MT_GAME_FOCUS__) return null;
-      window.__MT_GAME_FOCUS__.setTheme(${JSON.stringify({ fill: gameFillColor(), ring: gameRingColor() })});
-      return window.__MT_GAME_FOCUS__.setUserScale(${JSON.stringify(zoomFactor)});
+      return window.__MT_GAME_FOCUS__.configure(${JSON.stringify({
+        contentReady: gameContentReady,
+        fill: gameFillColor(),
+        ring: gameRingColor(),
+        userScale: zoomFactor,
+      })});
     })()`
   ).then((result) => {
     if (result && result.ok) debugLog('game-layout', result);
-  }).catch(() => {});
+    return result;
+  }).catch(() => null);
 }
 
 function injectGameFocus() {
   if (!focusSource || !gameView || gameView.webContents.isDestroyed()) return;
   if (!isGameUrl(gameView.webContents.getURL())) return;
-  clearFocusTimers();
-  gameView.webContents.executeJavaScript(focusSource).then(() => {
-    return gameView.webContents.executeJavaScript(
-      `(() => {
-        if (!window.__MT_GAME_FOCUS__) return null;
-        window.__MT_GAME_FOCUS__.setTheme(${JSON.stringify({ fill: gameFillColor(), ring: gameRingColor() })});
-        return window.__MT_GAME_FOCUS__.setUserScale(${JSON.stringify(getZoomFactor())});
-      })()`
-    ).then((result) => {
-      debugLog('focus-result', result);
-      return result;
-    }).catch(() => {});
+  gameView.webContents.executeJavaScript(
+    `${focusSource}\n;(() => {
+      if (!window.__MT_GAME_FOCUS__) return null;
+      return window.__MT_GAME_FOCUS__.configure(${JSON.stringify({
+        contentReady: gameContentReady,
+        fill: gameFillColor(),
+        ring: gameRingColor(),
+        userScale: getZoomFactor(),
+      })});
+    })()`
+  ).then((result) => {
+    debugLog('focus-result', result);
   }).catch(() => {});
-  focusTimers = [250, 700, 1400, 2400, 4200, 6200].map((delay) => {
-    return setTimeout(() => {
-      if (!gameView || gameView.webContents.isDestroyed()) return;
-      if (!isGameUrl(gameView.webContents.getURL())) return;
-      installAllGameFrameAdapters();
-      gameView.webContents.executeJavaScript(
-        `(() => {
-          if (!window.__MT_GAME_FOCUS__) return null;
-          window.__MT_GAME_FOCUS__.setTheme(${JSON.stringify({ fill: gameFillColor(), ring: gameRingColor() })});
-          return window.__MT_GAME_FOCUS__.setUserScale(${JSON.stringify(getZoomFactor())});
-        })()`
-      ).catch(() => {});
-    }, delay);
-  });
-}
-
-function clearFocusTimers() {
-  for (const timer of focusTimers) clearTimeout(timer);
-  focusTimers = [];
-}
-
-function dumpPageState() {
-  if (!gameView || gameView.webContents.isDestroyed()) return Promise.resolve(null);
-  const script = `
-    (() => {
-      const text = (document.body && document.body.innerText || '').trim().split('\\n').map(v => v.trim()).filter(Boolean).slice(0, 12);
-      const frame = document.getElementById('game_frame');
-      const iframeList = [...document.querySelectorAll('iframe')].slice(0, 6).map((el) => ({
-        id: el.id,
-        src: el.src,
-        width: el.offsetWidth,
-        height: el.offsetHeight
-      }));
-      return {
-        href: location.href,
-        title: document.title,
-        hasGameFrame: !!frame,
-        gameFrameSrc: frame ? frame.src : '',
-        text,
-        iframeList
-      };
-    })();
-  `;
-  return gameView.webContents.executeJavaScript(script).then((result) => {
-    debugLog('page-state', result);
-    return result;
-  }).catch((error) => {
-    debugLog('page-state-error', error && error.message ? error.message : String(error));
-    return null;
-  });
 }
 
 async function applyProxySettings() {

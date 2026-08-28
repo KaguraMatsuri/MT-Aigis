@@ -1,10 +1,61 @@
 const ipcRenderer = typeof document === 'undefined' ? null : require('electron').ipcRenderer;
 
 const TRUSTED_HOSTS = new Set(['accounts.dmm.com', 'accounts.dmm.co.jp']);
+const GAME_LAUNCH_PAGES = new Set([
+  'play.games.dmm.com/game/aigisc',
+  'play.games.dmm.com/game/aigis',
+  'play.games.dmm.co.jp/game/aigis',
+]);
+const GAME_LAUNCH_MASK_ID = 'mt-aigis-launch-mask';
+let gameLaunchMaskObserver = null;
 const FIELD_PATTERNS = {
   username: /(?:e-?mail|mail|login(?:[_-]?id)?|account|user(?:name)?|ログイン|メール|アカウント)/i,
   totp: /(?:otp|totp|one.?time|two.?factor|verification|auth(?:entication)?.?code|確認コード|認証コード)/i,
 };
+
+function isGameLaunchUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+    return GAME_LAUNCH_PAGES.has(`${parsed.hostname.toLowerCase()}${pathname}`);
+  } catch {
+    return false;
+  }
+}
+
+function installGameLaunchMask() {
+  if (window.top !== window || !isGameLaunchUrl(location.href)) return false;
+  if (!document.documentElement) {
+    if (!gameLaunchMaskObserver) {
+      gameLaunchMaskObserver = new MutationObserver(() => {
+        if (!document.documentElement) return;
+        gameLaunchMaskObserver.disconnect();
+        gameLaunchMaskObserver = null;
+        installGameLaunchMask();
+      });
+      gameLaunchMaskObserver.observe(document, { childList: true });
+    }
+    return true;
+  }
+  if (document.getElementById(GAME_LAUNCH_MASK_ID)) return true;
+  const style = document.createElement('style');
+  style.id = GAME_LAUNCH_MASK_ID;
+  style.textContent = `
+    html,
+    body {
+      background: #101011 !important;
+    }
+    body,
+    #game_frame {
+      visibility: hidden !important;
+    }
+    #game_frame {
+      opacity: 0 !important;
+    }
+  `;
+  document.documentElement.appendChild(style);
+  return true;
+}
 
 function isTrustedDocument() {
   return (
@@ -275,6 +326,7 @@ function installAutofill() {
 }
 
 if (typeof document !== 'undefined') {
+  installGameLaunchMask();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', installAutofill, { once: true });
   } else {
@@ -283,5 +335,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { planTotpValues };
+  module.exports = { isGameLaunchUrl, planTotpValues };
 }

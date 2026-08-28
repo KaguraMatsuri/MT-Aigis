@@ -38,12 +38,16 @@
 
   function alignAigisSurface() {
     if (!isAigisSurfaceDocument()) return;
-    for (const id of ['canvas', 'main_frame']) {
-      const element = document.getElementById(id);
-      if (!element) continue;
-      element.style.setProperty('display', 'block', 'important');
-      element.style.setProperty('margin-left', '0', 'important');
-      element.style.setProperty('margin-right', '0', 'important');
+    const canvas = document.getElementById('canvas');
+    if (canvas) {
+      canvas.style.setProperty('display', 'block', 'important');
+      canvas.style.setProperty('margin-left', '0', 'important');
+      canvas.style.setProperty('margin-right', '0', 'important');
+    }
+    const auxiliaryFrame = document.getElementById('main_frame');
+    if (auxiliaryFrame) {
+      auxiliaryFrame.style.setProperty('display', 'none', 'important');
+      auxiliaryFrame.style.setProperty('visibility', 'hidden', 'important');
     }
   }
 

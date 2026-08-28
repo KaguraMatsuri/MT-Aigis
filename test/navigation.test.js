@@ -45,6 +45,32 @@ test('places the compact editable address control in the top bar', () => {
   assert.match(main, /const targetUrl = getHomeUrl\(\)/);
 });
 
+test('reveals only playable Aigis content after its adapters are ready', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'ui', 'sidebar.css'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const gameFocus = fs.readFileSync(path.join(root, 'resources', 'game-focus.js'), 'utf8');
+  const containerFocus = fs.readFileSync(path.join(root, 'resources', 'game-container-focus.js'), 'utf8');
+
+  assert.match(html, /id="game-loading-surface" aria-hidden="true"/);
+  assert.match(styles, /\.game-loading-frame \{[\s\S]*?background: #101011;/);
+  assert.match(main, /did-start-navigation[\s\S]*?gameViewLoadingMasked = isGameUrl\(url\)/);
+  assert.match(main, /pathname = parsed\.pathname\.toLowerCase\(\)/);
+  assert.match(main, /function markGameContentReady\(\)[\s\S]*?Promise\.all\(\[applyGamePresentation\(\), focusAllGameContainers\(\)\]\)\.finally[\s\S]*?gameViewLoadingMasked = false;[\s\S]*?syncGameViewVisibility\(\)/);
+  assert.match(main, /gameView\.setVisible\(!gameViewLoadingMasked && !gameViewFallbackHidden\)/);
+  assert.match(main, /host === 'osapi\.dmm\.com' \|\| host === 'osapi\.dmm\.co\.jp'/);
+  assert.match(main, /focusGameContainer\(frame\)/);
+  assert.match(containerFocus, /function hideOutsideGamePath\(frame\)/);
+  assert.match(containerFocus, /setStyle\(document\.body, 'visibility', 'hidden'\)/);
+  assert.match(containerFocus, /host === 'drc1bk94f7rq8\.cloudfront\.net'/);
+  assert.match(gameFocus, /configure\(options\)/);
+  assert.match(gameFocus, /observer\.disconnect\(\);[\s\S]*?observerActive = false/);
+  assert.match(gameFocus, /left', `calc\(50% - \$\{GAME_WIDTH \/ 2\}px\)`/);
+  assert.match(gameFocus, /reason: 'game-content-loading'/);
+  assert.doesNotMatch(main, /dumpPageState|focusTimers/);
+});
+
 test('keeps the saved address outside app updates and clears the whole browsing session', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
 

@@ -117,6 +117,81 @@ button:disabled {
   font-size: 12px;
 }
 
+#game-loading-surface {
+  position: fixed;
+  z-index: 0;
+  top: var(--top-bar-height);
+  right: var(--sidebar-width);
+  bottom: var(--bottom-bar-height);
+  left: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  container-type: size;
+  background: var(--game-fill);
+  color: rgba(255, 255, 255, 0.72);
+  pointer-events: none;
+}
+
+.game-loading-frame {
+  position: relative;
+  flex: 0 0 auto;
+  width: min(100cqw, 150cqh);
+  aspect-ratio: 3 / 2;
+  display: grid;
+  place-items: center;
+  background: #101011;
+}
+
+.game-loading-copy {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.game-loading-dots {
+  display: inline-flex;
+  min-width: 18px;
+}
+
+.game-loading-dots > span {
+  opacity: 0.24;
+  animation: game-loading-dot 1.2s ease-in-out infinite;
+}
+
+.game-loading-dots > span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.game-loading-dots > span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.game-loading-brand {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+@keyframes game-loading-dot {
+  0%, 60%, 100% { opacity: 0.24; }
+  30% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-loading-dots > span {
+    animation: none;
+    opacity: 0.72;
+  }
+}
+
 #sidebar {
   position: fixed;
   z-index: 15;
