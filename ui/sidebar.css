@@ -100,16 +100,6 @@ button:disabled {
   -webkit-app-region: drag;
 }
 
-.game-view-snapshot {
-  position: fixed;
-  z-index: 10;
-  display: block;
-  object-fit: fill;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
 .chrome-title {
   display: flex;
   align-items: center;
@@ -963,6 +953,15 @@ select {
 
 .update-dialog-actions .control {
   min-height: 44px;
+}
+
+html.native-overlay-root,
+body.native-overlay-page {
+  background: transparent;
+}
+
+body.native-overlay-page {
+  overflow: hidden;
 }
 
 .hidden {

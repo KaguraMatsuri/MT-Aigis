@@ -1,12 +1,11 @@
 const {
   app,
   BrowserWindow,
-  BrowserView,
+  WebContentsView,
   Menu,
   clipboard,
   ipcMain,
   shell,
-  nativeImage,
   nativeTheme,
 } = require('electron');
 const log = require('electron-log/main');
@@ -137,6 +136,9 @@ const APP_TEXT = {
     updateOpening: '正在打开安装器',
     updateOpened: '安装器已打开',
     updateFailed: '更新失败',
+    updatePromptKicker: '下个版本',
+    updatePromptDownload: '下载更新',
+    updatePromptLater: '稍后',
     updateSeedShown: '已显示 Seed 更新通知',
     updateSeedDownload: '已验证 Seed 下载操作（开发版未下载安装）',
   },
@@ -157,6 +159,9 @@ const APP_TEXT = {
     updateOpening: 'Opening installer',
     updateOpened: 'Installer opened',
     updateFailed: 'Update failed',
+    updatePromptKicker: 'Next Version',
+    updatePromptDownload: 'Download Update',
+    updatePromptLater: 'Later',
     updateSeedShown: 'Seed update notice shown',
     updateSeedDownload: 'Seed download action verified (nothing was downloaded in development)',
   },
@@ -177,6 +182,9 @@ const APP_TEXT = {
     updateOpening: 'インストーラを開いています',
     updateOpened: 'インストーラを開きました',
     updateFailed: '更新に失敗しました',
+    updatePromptKicker: '次のバージョン',
+    updatePromptDownload: 'アップデートをダウンロード',
+    updatePromptLater: '後で',
     updateSeedShown: 'Seed 更新通知を表示しました',
     updateSeedDownload: 'Seed のダウンロード操作を確認しました（開発版では未実行）',
   },
@@ -219,6 +227,10 @@ const vault = new PlainVault(path.join(USER_DATA, 'secure', 'vault.json'));
 let currentConfig = normalizeConfig(store.load());
 let mainWindow = null;
 let gameView = null;
+let overlayView = null;
+let overlayReady = null;
+let overlayState = null;
+let gameViewFallbackHidden = false;
 let aboutWindow = null;
 let focusSource = '';
 let scrollSource = '';
@@ -569,9 +581,26 @@ async function readLatestGithubRelease(manifestVersion = '') {
 function showUpdateNotification(release) {
   if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve('later');
   return new Promise((resolve) => {
-    updatePrompt = { release, resolve };
-    setGameViewAttached(false);
-    sendToRenderer('update:prompt', release);
+    updatePrompt = { release, resolve, surface: 'overlay' };
+    showOverlay({
+      kind: 'app-update',
+      language: effectiveLanguage(),
+      kicker: appText('updatePromptKicker'),
+      title: release.title || 'MT-Aigis',
+      date: release.displayVersion || release.version || '',
+      body: release.notes || '',
+      closeLabel: appText('updatePromptLater'),
+      visitLabel: appText('updatePromptDownload'),
+    }).catch((error) => {
+      debugLog('update-overlay-error', error && error.message ? error.message : String(error));
+      return false;
+    }).then((opened) => {
+      if (opened || !updatePrompt || updatePrompt.release !== release) return;
+      updatePrompt.surface = 'renderer';
+      gameViewFallbackHidden = true;
+      syncGameViewVisibility();
+      sendToRenderer('update:prompt', release);
+    });
   });
 }
 
@@ -798,15 +827,22 @@ function createWindow() {
     if (gameView && !gameView.webContents.isDestroyed()) {
       gameView.webContents.close();
     }
+    if (overlayView && !overlayView.webContents.isDestroyed()) {
+      overlayView.webContents.close();
+    }
     mainWindow = null;
     gameView = null;
+    overlayView = null;
+    overlayReady = null;
+    overlayState = null;
   });
 
   createGameView();
+  ensureOverlayView();
 }
 
 function createGameView() {
-  gameView = new BrowserView({
+  gameView = new WebContentsView({
     webPreferences: {
       partition: VIEW_PARTITION,
       preload: path.join(__dirname, 'resources', 'dmm-autofill-preload.js'),
@@ -821,9 +857,9 @@ function createGameView() {
   focusSource = loadResource('game-focus.js');
   scrollSource = loadResource('game-scroll.js');
 
-  mainWindow.setBrowserView(gameView);
+  mainWindow.contentView.addChildView(gameView);
   gameViewAttached = true;
-  gameView.setAutoResize({ width: false, height: false });
+  syncGameViewVisibility();
   gameView.webContents.setUserAgent(CHROME_UA);
   gameView.webContents.setBackgroundThrottling(false);
   gameView.setBackgroundColor(gameFillColor());
@@ -994,31 +1030,127 @@ function effectiveLanguage() {
   return 'en';
 }
 
-function setGameViewAttached(attached) {
-  if (
-    !mainWindow ||
-    mainWindow.isDestroyed() ||
-    !gameView ||
-    gameView.webContents.isDestroyed()
-  ) return;
-  if (attached && !gameViewAttached) {
-    mainWindow.setBrowserView(gameView);
-    gameViewAttached = true;
-    updateLayout(false);
-    return;
+function syncGameViewVisibility() {
+  if (!gameView || gameView.webContents.isDestroyed()) return false;
+  gameView.setVisible(!gameViewFallbackHidden);
+  return true;
+}
+
+function normalizeOverlayState(payload, previous) {
+  const source = payload || {};
+  const kind = source.kind || (previous && previous.kind) || '';
+  if (!['game-news', 'app-update'].includes(kind)) return null;
+  const base = previous && previous.kind === kind ? previous : {};
+  const text = (key, limit) => String(
+    Object.prototype.hasOwnProperty.call(source, key) ? source[key] : base[key] || ''
+  ).slice(0, limit);
+  return {
+    kind,
+    language: ['zh', 'en', 'ja'].includes(source.language) ? source.language : base.language || 'zh',
+    kicker: text('kicker', 80),
+    title: text('title', 500),
+    date: text('date', 80),
+    body: text('body', 12000),
+    closeLabel: text('closeLabel', 80),
+    visitLabel: text('visitLabel', 80),
+    url: kind === 'game-news' ? trustedGameNewsUrl(
+      Object.prototype.hasOwnProperty.call(source, 'url') ? source.url : base.url
+    ) : '',
+  };
+}
+
+function applyOverlayBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || !overlayView) return false;
+  const size = mainWindow.getContentSize();
+  overlayView.setBounds({ x: 0, y: 0, width: size[0], height: size[1] });
+  return true;
+}
+
+function ensureOverlayView() {
+  if (overlayView && !overlayView.webContents.isDestroyed()) {
+    return overlayReady || Promise.resolve(true);
   }
-  if (!attached && gameViewAttached) {
-    mainWindow.removeBrowserView(gameView);
-    gameViewAttached = false;
+  overlayView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'resources', 'native-overlay-preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      spellcheck: false,
+    },
+  });
+  overlayView.setBackgroundColor('#00000000');
+  mainWindow.contentView.addChildView(overlayView);
+  applyOverlayBounds();
+  overlayView.setVisible(false);
+  overlayView.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  overlayView.webContents.on('will-navigate', (event) => event.preventDefault());
+  overlayReady = overlayView.webContents
+    .loadFile(path.join(__dirname, 'ui', 'native-overlay.html'))
+    .then(() => true)
+    .catch((error) => {
+      debugLog('native-overlay-load-error', error && error.message ? error.message : String(error));
+      return false;
+    });
+  return overlayReady;
+}
+
+async function showOverlay(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  const nextState = normalizeOverlayState(payload, null);
+  if (!nextState) return false;
+  const ready = await ensureOverlayView();
+  if (!ready || !overlayView || overlayView.webContents.isDestroyed()) return false;
+  overlayState = nextState;
+  mainWindow.contentView.addChildView(overlayView);
+  applyOverlayBounds();
+  overlayView.setVisible(true);
+  overlayView.webContents.send('native-overlay:state', overlayState);
+  overlayView.webContents.focus();
+  return true;
+}
+
+function updateOverlay(payload) {
+  if (!overlayView || overlayView.webContents.isDestroyed() || !overlayState) return false;
+  const nextState = normalizeOverlayState(payload, overlayState);
+  if (!nextState) return false;
+  overlayState = nextState;
+  overlayView.webContents.send('native-overlay:state', overlayState);
+  return true;
+}
+
+function closeOverlay() {
+  if (!mainWindow || mainWindow.isDestroyed() || !overlayView) return false;
+  const kind = overlayState && overlayState.kind;
+  overlayView.setVisible(false);
+  overlayState = null;
+  sendToRenderer('native-overlay:closed', { kind });
+  mainWindow.webContents.focus();
+  return true;
+}
+
+function resolveUpdatePrompt(action) {
+  if (!updatePrompt) return false;
+  const response = action === 'install' ? 'install' : 'later';
+  const pending = updatePrompt;
+  updatePrompt = null;
+  if (pending.surface === 'overlay') closeOverlay();
+  if (pending.surface === 'renderer') {
+    gameViewFallbackHidden = false;
+    syncGameViewVisibility();
   }
+  pending.resolve(response);
+  return true;
 }
 
 function updateLayout(debounce) {
-  if (!mainWindow || !gameView || !gameViewAttached) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   if (debounce !== false && layoutPending) return;
   layoutPending = true;
   var apply = function () {
     layoutPending = false;
+    if (overlayState) applyOverlayBounds();
     if (!mainWindow || !gameView || !gameViewAttached) return;
     var size = mainWindow.getContentSize();
     var width = size[0], height = size[1];
@@ -1734,61 +1866,53 @@ ipcMain.handle('game-news:detail', (event, rawUrl) => {
   return getGameNewsDetail(rawUrl);
 });
 
-function hasVisibleSnapshotContent(image) {
-  if (!image || image.isEmpty()) return false;
-  const probe = image.resize({ width: 32, height: 32, quality: 'good' }).toBitmap();
-  let visiblePixels = 0;
-  let sampledPixels = 0;
-  for (let offset = 0; offset + 3 < probe.length; offset += 4) {
-    sampledPixels += 1;
-    const blue = probe[offset];
-    const green = probe[offset + 1];
-    const red = probe[offset + 2];
-    const alpha = probe[offset + 3];
-    if (alpha > 8 && Math.max(red, green, blue) > 20) visiblePixels += 1;
-  }
-  return sampledPixels > 0 && visiblePixels / sampledPixels >= 0.02;
-}
-
-ipcMain.handle('game-news:snapshot', async (event) => {
-  if (
-    !mainWindow ||
-    mainWindow.isDestroyed() ||
-    event.sender.id !== mainWindow.webContents.id ||
-    !gameView ||
-    gameView.webContents.isDestroyed() ||
-    !gameViewAttached
-  ) return null;
-  const image = await gameView.webContents.capturePage();
-  if (!hasVisibleSnapshotContent(image)) {
-    debugLog('game-news-snapshot-rejected', { reason: 'blank-frame' });
-    return null;
-  }
-  return {
-    dataUrl: image.toDataURL(),
-    bounds: gameView.getBounds(),
-  };
-});
-
-ipcMain.handle('game-news:dialog-state', (event, state) => {
+ipcMain.handle('native-overlay:open', (event, payload) => {
   if (
     !mainWindow ||
     mainWindow.isDestroyed() ||
     event.sender.id !== mainWindow.webContents.id
   ) return false;
-  setGameViewAttached(state !== 'open');
-  return true;
+  return showOverlay(payload);
 });
 
-ipcMain.handle('game-news:open', (event, rawUrl) => {
+ipcMain.handle('native-overlay:update', (event, payload) => {
   if (
     !mainWindow ||
     mainWindow.isDestroyed() ||
     event.sender.id !== mainWindow.webContents.id
+  ) return false;
+  return updateOverlay(payload);
+});
+
+ipcMain.handle('native-overlay:close', (event) => {
+  if (
+    !overlayView ||
+    overlayView.webContents.isDestroyed() ||
+    event.sender.id !== overlayView.webContents.id
+  ) return false;
+  return closeOverlay();
+});
+
+ipcMain.handle('native-overlay:open-external', (event, rawUrl) => {
+  if (
+    !overlayView ||
+    overlayView.webContents.isDestroyed() ||
+    event.sender.id !== overlayView.webContents.id
   ) return false;
   const url = trustedGameNewsUrl(rawUrl);
   if (!url) return false;
   return shell.openExternal(url).then(() => true);
+});
+
+ipcMain.handle('native-overlay:update-respond', (event, action) => {
+  if (
+    !overlayView ||
+    overlayView.webContents.isDestroyed() ||
+    event.sender.id !== overlayView.webContents.id ||
+    !overlayState ||
+    overlayState.kind !== 'app-update'
+  ) return false;
+  return resolveUpdatePrompt(action);
 });
 
 ipcMain.handle('scroll:set-level', (_, level) => {
@@ -1812,12 +1936,7 @@ ipcMain.handle('update:respond', (event, action) => {
     event.sender.id !== mainWindow.webContents.id ||
     !updatePrompt
   ) return false;
-  const response = action === 'install' ? 'install' : 'later';
-  const pending = updatePrompt;
-  updatePrompt = null;
-  pending.resolve(response);
-  setGameViewAttached(true);
-  return true;
+  return resolveUpdatePrompt(action);
 });
 
 ipcMain.handle('copy:text', (_, value) => {

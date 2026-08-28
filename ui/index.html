@@ -18,8 +18,6 @@
     </div>
   </header>
 
-  <img id="game-view-snapshot" class="game-view-snapshot hidden" alt="" aria-hidden="true">
-
   <aside id="sidebar">
     <button id="btn-toggle-sidebar" title="折叠侧栏" aria-label="折叠侧栏">◀</button>
     <div class="sidebar-head">
@@ -229,22 +227,6 @@
   <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
     <span id="mute-label" data-i18n="unmuted">静音游戏</span>
   </button>
-
-  <dialog id="game-news-dialog" class="update-dialog game-news-dialog" aria-labelledby="game-news-dialog-title" aria-describedby="game-news-dialog-body">
-    <div class="update-dialog-head">
-      <span class="update-dialog-mark" aria-hidden="true">i</span>
-      <div>
-        <p class="update-dialog-kicker" data-i18n="newsKicker">游戏动态</p>
-        <h2 id="game-news-dialog-title" data-i18n="gameNews">更新公告</h2>
-      </div>
-      <span id="game-news-dialog-date" class="update-version"></span>
-    </div>
-    <div id="game-news-dialog-body" class="update-notes game-news-dialog-body" data-i18n="newsDetailLoading">正在加载公告正文...</div>
-    <div class="update-dialog-actions">
-      <button id="btn-news-close" class="control" type="button" data-i18n="newsClose">关闭</button>
-      <button id="btn-news-open" class="control primary" type="button" data-i18n="newsVisitOfficial">前往官网</button>
-    </div>
-  </dialog>
 
   <dialog id="update-dialog" class="update-dialog" aria-labelledby="update-dialog-title" aria-describedby="update-dialog-notes">
     <div class="update-dialog-head">

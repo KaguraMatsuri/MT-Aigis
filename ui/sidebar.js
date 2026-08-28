@@ -7,8 +7,6 @@
   var vaultState = null;
   var gameNewsState = null;
   var currentGameNewsUrl = '';
-  var gameViewSnapshotCache = null;
-  var gameViewSnapshotTask = null;
   var customUrlEditing = false;
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
@@ -521,131 +519,46 @@
       button.addEventListener('click', function () {
         showGameNewsDetail(item);
       });
-      button.addEventListener('mouseenter', warmGameViewSnapshot);
-      button.addEventListener('focus', warmGameViewSnapshot);
       list.appendChild(button);
     });
   }
 
-  function captureGameViewSnapshot(force) {
-    if (gameViewSnapshotTask) return gameViewSnapshotTask;
-    if (!force && gameViewSnapshotCache && Date.now() - gameViewSnapshotCache.capturedAt < 5000) {
-      return Promise.resolve(gameViewSnapshotCache);
-    }
-    gameViewSnapshotTask = api.invoke('game-news:snapshot').then(function (snapshot) {
-      if (!snapshot || !snapshot.dataUrl || !snapshot.bounds) return false;
-      gameViewSnapshotCache = {
-        dataUrl: snapshot.dataUrl,
-        bounds: snapshot.bounds,
-        capturedAt: Date.now(),
-      };
-      gameViewSnapshotCache.ready = preloadGameViewSnapshot(gameViewSnapshotCache);
-      return gameViewSnapshotCache;
-    }).catch(function () {
-      return false;
-    }).finally(function () {
-      gameViewSnapshotTask = null;
-    });
-    return gameViewSnapshotTask;
-  }
-
-  function warmGameViewSnapshot(eventOrForce) {
-    captureGameViewSnapshot(eventOrForce === true);
-  }
-
-  function preloadGameViewSnapshot(snapshot) {
-    var preload = new Image();
-    preload.decoding = 'async';
-    preload.src = snapshot.dataUrl;
-    if (typeof preload.decode === 'function') {
-      return preload.decode().catch(function () { return false; });
-    }
-    if (preload.complete) return Promise.resolve(true);
-    return new Promise(function (resolve) {
-      preload.addEventListener('load', function () { resolve(true); }, { once: true });
-      preload.addEventListener('error', function () { resolve(false); }, { once: true });
-    });
-  }
-
-  function displayGameViewSnapshot(snapshot) {
-    if (!snapshot) return Promise.resolve(false);
-    var image = byId('game-view-snapshot');
-    return Promise.resolve(snapshot.ready).catch(function () { return false; }).then(function () {
-      image.src = snapshot.dataUrl;
-      image.style.left = snapshot.bounds.x + 'px';
-      image.style.top = snapshot.bounds.y + 'px';
-      image.style.width = snapshot.bounds.width + 'px';
-      image.style.height = snapshot.bounds.height + 'px';
-      if (typeof image.decode === 'function') {
-        return image.decode().catch(function () { return false; });
-      }
-      return true;
-    }).then(function () {
-      image.classList.remove('hidden');
-      return new Promise(function (resolve) {
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () { resolve(true); });
-        });
-      });
-    });
-  }
-
-  function prepareGameViewSnapshot() {
-    if (gameViewSnapshotCache) {
-      warmGameViewSnapshot();
-      return displayGameViewSnapshot(gameViewSnapshotCache);
-    }
-    return captureGameViewSnapshot().then(function (snapshot) {
-      if (!snapshot) return false;
-      return displayGameViewSnapshot(snapshot);
-    });
-  }
-
-  function clearGameViewSnapshot() {
-    var image = byId('game-view-snapshot');
-    image.classList.add('hidden');
-    image.removeAttribute('src');
-  }
-
   function showGameNewsDetail(item) {
-    var dialog = byId('game-news-dialog');
     var requestedUrl = item.url || '';
     currentGameNewsUrl = requestedUrl;
-    byId('game-news-dialog-title').textContent = item.title || t('gameNews');
-    byId('game-news-dialog-date').textContent = item.date || '';
-    byId('game-news-dialog-body').textContent = t('newsDetailLoading');
-    byId('btn-news-open').disabled = !currentGameNewsUrl;
-    prepareGameViewSnapshot().then(function () {
-      if (currentGameNewsUrl !== requestedUrl) {
-        clearGameViewSnapshot();
-        return false;
-      }
-      return api.invoke('game-news:dialog-state', 'open');
-    }).then(function (ready) {
-      if (!ready) return;
-      if (currentGameNewsUrl !== requestedUrl) return;
-      if (!dialog.open) dialog.showModal();
-      setTimeout(function () { byId('btn-news-close').focus(); }, 0);
-    });
+    var overlayReady = api.invoke('native-overlay:open', {
+      kind: 'game-news',
+      language: currentLanguage,
+      kicker: t('newsKicker'),
+      title: item.title || t('gameNews'),
+      date: item.date || '',
+      body: t('newsDetailLoading'),
+      closeLabel: t('newsClose'),
+      visitLabel: t('newsVisitOfficial'),
+      url: requestedUrl,
+    }).catch(function () { return false; });
     api.invoke('game-news:detail', requestedUrl).then(function (detail) {
       if (currentGameNewsUrl !== requestedUrl) return;
       currentGameNewsUrl = detail.url || currentGameNewsUrl;
-      byId('game-news-dialog-title').textContent = detail.title || item.title || t('gameNews');
-      byId('game-news-dialog-date').textContent = detail.date || item.date || '';
-      byId('game-news-dialog-body').textContent = detail.body || t('newsDetailFailed');
-      byId('btn-news-open').disabled = !currentGameNewsUrl;
+      overlayReady.then(function (opened) {
+        if (!opened || currentGameNewsUrl !== (detail.url || requestedUrl)) return;
+        api.invoke('native-overlay:update', {
+          kind: 'game-news',
+          title: detail.title || item.title || t('gameNews'),
+          date: detail.date || item.date || '',
+          body: detail.body || t('newsDetailFailed'),
+          url: currentGameNewsUrl,
+        });
+      });
     }).catch(function () {
       if (currentGameNewsUrl !== requestedUrl) return;
-      byId('game-news-dialog-body').textContent = t('newsDetailFailed');
-    });
-  }
-
-  function closeGameNewsDialog() {
-    var dialog = byId('game-news-dialog');
-    if (dialog.open) dialog.close();
-    currentGameNewsUrl = '';
-    api.invoke('game-news:dialog-state', 'close').finally(function () {
-      requestAnimationFrame(clearGameViewSnapshot);
+      overlayReady.then(function (opened) {
+        if (!opened || currentGameNewsUrl !== requestedUrl) return;
+        api.invoke('native-overlay:update', {
+          kind: 'game-news',
+          body: t('newsDetailFailed'),
+        });
+      });
     });
   }
 
@@ -777,11 +690,7 @@
     var dialog = byId('update-dialog');
     if (!dialog.open) return;
     dialog.close();
-    api.invoke('update:respond', action).then(function () {
-      setTimeout(function () { warmGameViewSnapshot(true); }, 800);
-      setTimeout(function () { warmGameViewSnapshot(true); }, 3000);
-      setTimeout(function () { warmGameViewSnapshot(true); }, 6000);
-    }).catch(function (error) {
+    api.invoke('update:respond', action).catch(function (error) {
       setRuntime(errorText(error), true);
     });
   }
@@ -863,14 +772,6 @@
     refreshNetworkStatus(false);
   });
   byId('btn-refresh-news').addEventListener('click', function () { refreshGameNews(true); });
-  byId('btn-news-close').addEventListener('click', closeGameNewsDialog);
-  byId('btn-news-open').addEventListener('click', function () {
-    if (currentGameNewsUrl) api.invoke('game-news:open', currentGameNewsUrl);
-  });
-  byId('game-news-dialog').addEventListener('cancel', function (event) {
-    event.preventDefault();
-    closeGameNewsDialog();
-  });
   byId('btn-refresh-cache').addEventListener('click', function () { refreshCache(true); });
   byId('btn-clear-cache').addEventListener('click', function () {
     var button = this;
@@ -940,6 +841,7 @@
   api.on('browser:title', function (title) { byId('page-title').textContent = title || 'MT-Aigis'; });
   api.on('browser:error', function (message) { setRuntime(message || t('loadFailed'), true); });
   api.on('sidebar:state', function (state) { applySidebarState(!!state.collapsed, false); });
+  api.on('native-overlay:closed', function () { currentGameNewsUrl = ''; });
   api.on('update:state', updateUpdateState);
   api.on('update:prompt', showUpdatePrompt);
 
@@ -962,13 +864,10 @@
   refreshNetworkStatus(false);
   refreshGameNews(false);
   refreshCache(true);
-  setTimeout(function () { warmGameViewSnapshot(true); }, 2500);
-  setTimeout(function () { warmGameViewSnapshot(true); }, 6000);
   setTimeout(function () { Object.keys(pingFields).forEach(runPing); }, 700);
   setInterval(refreshBrowserState, 2000);
   setInterval(function () { refreshCache(false); }, 15000);
   setInterval(function () { refreshGameNews(false); }, 30 * 60 * 1000);
-  window.addEventListener('resize', function () { gameViewSnapshotCache = null; });
   setInterval(function () {
     updateTotpProgress();
     if (

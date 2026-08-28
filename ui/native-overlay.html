@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="native-overlay-root">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MT-Aigis</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body class="native-overlay-page">
+  <dialog id="native-overlay-dialog" class="update-dialog game-news-dialog" aria-labelledby="native-overlay-title" aria-describedby="native-overlay-body">
+    <div class="update-dialog-head">
+      <span class="update-dialog-mark" aria-hidden="true">i</span>
+      <div>
+        <p id="native-overlay-kicker" class="update-dialog-kicker">游戏动态</p>
+        <h2 id="native-overlay-title">更新公告</h2>
+      </div>
+      <span id="native-overlay-date" class="update-version"></span>
+    </div>
+    <div id="native-overlay-body" class="update-notes game-news-dialog-body">正在加载公告正文...</div>
+    <div class="update-dialog-actions">
+      <button id="native-overlay-close" class="control" type="button">关闭</button>
+      <button id="native-overlay-open" class="control primary" type="button">前往官网</button>
+    </div>
+  </dialog>
+
+  <script src="native-overlay.js"></script>
+</body>
+</html>
