@@ -975,8 +975,37 @@ async function initializeGameSession() {
   } catch (error) {
     debugLog('proxy-init-error', error && error.message ? error.message : String(error));
   }
+  preconnectGameOrigins();
   await restoreAuthCookies();
   loadDirectGame('startup');
+}
+
+function preconnectGameOrigins() {
+  if (!gameView || gameView.webContents.isDestroyed()) return;
+  const targetUrl = getHomeUrl();
+  if (!isGameUrl(targetUrl)) return;
+
+  const target = new URL(targetUrl);
+  const dmmDomain = target.hostname.endsWith('.dmm.co.jp') ? 'dmm.co.jp' : 'dmm.com';
+  const origins = [
+    target.origin,
+    `https://accounts.${dmmDomain}`,
+    `https://artemis.games.${dmmDomain}`,
+    `https://osapi.${dmmDomain}`,
+    'https://drc1bk94f7rq8.cloudfront.net',
+  ];
+
+  for (const url of origins) {
+    try {
+      gameView.webContents.session.preconnect({ url, numSockets: 1 });
+    } catch (error) {
+      debugLog('game-preconnect-error', {
+        url,
+        error: error && error.message ? error.message : String(error),
+      });
+    }
+  }
+  debugLog('game-preconnect', { origins });
 }
 
 function normalizeConfig(rawConfig) {
