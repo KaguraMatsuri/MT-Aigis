@@ -7,7 +7,8 @@
   --top-bar-height: 48px;
   --bottom-bar-height: 52px;
   --window: #101011;
-  --sidebar: rgba(28, 28, 30, 0.96);
+  --sidebar: #1c1c1e;
+  --chrome-surface: var(--sidebar);
   --surface: #2c2c2e;
   --surface-hover: #363638;
   --surface-strong: #3a3a3c;
@@ -30,6 +31,7 @@
   :root {
     --window: #f2f2f7;
     --sidebar: rgba(246, 246, 248, 0.96);
+    --chrome-surface: var(--window);
     --surface: #fff;
     --surface-hover: #f2f2f4;
     --surface-strong: #e9e9ed;
@@ -59,7 +61,7 @@ body {
   margin: 0;
   overflow: hidden;
   color: var(--text);
-  background: var(--window);
+  background: var(--chrome-surface);
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -100,7 +102,7 @@ button:disabled {
   padding: 0 18px 0 88px;
   display: flex;
   align-items: center;
-  background: color-mix(in srgb, var(--window) 95%, transparent);
+  background: color-mix(in srgb, var(--chrome-surface) 95%, transparent);
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
   -webkit-app-region: drag;
