@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mt-aigis-telemetry",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-27",
+  "observability": {
+    "enabled": false,
+    "logs": {
+      "invocation_logs": false
+    }
+  },
+  "triggers": {
+    "crons": ["17 0 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mt-aigis-telemetry",
+      "database_id": "80d2228f-19dd-4841-98a4-e7e9928fccca",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
