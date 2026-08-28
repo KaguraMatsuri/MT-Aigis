@@ -108,20 +108,11 @@ const TRACKER_RULES = [
   '*://*.criteo.com/*',
   '*://*.hotjar.com/*',
 ];
-const CACHE_DIRECTORIES = [
-  'Cache',
-  'Code Cache',
-  'GPUCache',
-  'DawnGraphiteCache',
-  'DawnWebGPUCache',
-  'Service Worker',
-  'Shared Dictionary',
-  'blob_storage',
-];
 const GAME_AUXILIARY_FRAME_RULES = [
   'https://drc1bk94f7rq8.cloudfront.net/00/html/main.htm',
   'https://drc1bk94f7rq8.cloudfront.net/00/html/main_all.htm',
 ];
+const CACHE_STATS_TTL_MS = 15_000;
 const APP_TEXT = {
   zh: {
     aboutMenu: '关于 MT-Aigis',
@@ -248,9 +239,10 @@ let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
 let layoutPending = false;
 let layoutPresentationTimer = null;
 let sidebarTransitionActive = false;
-let resourceStats = createResourceStats();
 let cacheStatsCache = null;
 let cacheStatsAt = 0;
+let cacheStatsTask = null;
+let cacheClearTask = null;
 let gameViewAttached = false;
 let updateState = {
   status: 'idle',
@@ -740,24 +732,6 @@ function checkForUpdates() {
   return updateDownloadTask;
 }
 
-function createResourceStats() {
-  return {
-    completed: 0,
-    fromCache: 0,
-    networkBytes: 0,
-  };
-}
-
-function getResponseContentLength(headers) {
-  if (!headers) return 0;
-  for (const [name, values] of Object.entries(headers)) {
-    if (name.toLowerCase() !== 'content-length') continue;
-    const value = Array.isArray(values) ? values[0] : values;
-    return Number.parseInt(value, 10) || 0;
-  }
-  return 0;
-}
-
 function isGameContentFrame(rawUrl) {
   try {
     const host = new URL(rawUrl).hostname.toLowerCase();
@@ -939,12 +913,6 @@ function createGameView() {
   const gameSession = gameView.webContents.session;
   gameSession.setUserAgent(CHROME_UA, 'ja');
   gameSession.setPermissionRequestHandler((_, __, callback) => callback(false));
-  gameSession.webRequest.onCompleted({ urls: ['http://*/*', 'https://*/*'] }, function (details) {
-    resourceStats.completed += 1;
-    if (details.fromCache) resourceStats.fromCache += 1;
-    else resourceStats.networkBytes += getResponseContentLength(details.responseHeaders);
-    sendToRenderer('resource:count', { ...resourceStats });
-  });
   gameSession.webRequest.onBeforeRequest(
     { urls: [...TRACKER_RULES, ...GAME_AUXILIARY_FRAME_RULES] },
     (_, callback) => callback({ cancel: true })
@@ -1242,8 +1210,6 @@ function attachNavigationHandlers() {
   });
 
   gameView.webContents.on('did-navigate', (_, url) => {
-    resourceStats = createResourceStats();
-    sendToRenderer('resource:count', { ...resourceStats });
     gameContentReady = false;
     gameViewLoadingMasked = isGameUrl(url);
     syncGameViewVisibility();
@@ -2254,61 +2220,58 @@ ipcMain.handle('cache:clear-cookies', async () => {
   }
 });
 
-async function directorySize(directory) {
-  let total = 0;
-  try {
-    const entries = await fs.promises.readdir(directory, { withFileTypes: true });
-    await Promise.all(entries.map(async (entry) => {
-      try {
-        const filePath = path.join(directory, entry.name);
-        if (entry.isDirectory()) total += await directorySize(filePath);
-        else if (entry.isFile()) total += (await fs.promises.stat(filePath)).size;
-      } catch {}
-    }));
-  } catch {}
-  return total;
-}
-
-function gamePartitionPath() {
-  return path.join(USER_DATA, 'Partitions', VIEW_PARTITION.replace('persist:', ''));
-}
-
 async function getCacheStats(force = false) {
-  if (!force && cacheStatsCache && Date.now() - cacheStatsAt < 5000) {
+  if (cacheClearTask) await cacheClearTask.catch(() => null);
+  if (!force && cacheStatsCache && Date.now() - cacheStatsAt < CACHE_STATS_TTL_MS) {
     return cacheStatsCache;
   }
-  const session = gameView && !gameView.webContents.isDestroyed()
-    ? gameView.webContents.session
-    : null;
-  const httpBytes = session ? await session.getCacheSize().catch(() => 0) : 0;
-  const partition = gamePartitionPath();
-  const diskBytes = (await Promise.all(
-    CACHE_DIRECTORIES.map((name) => directorySize(path.join(partition, name)))
-  )).reduce((sum, value) => sum + value, 0);
-  cacheStatsCache = {
-    httpBytes,
-    diskBytes: Math.max(httpBytes, diskBytes),
-    resources: { ...resourceStats },
-  };
-  cacheStatsAt = Date.now();
-  return cacheStatsCache;
+  if (cacheStatsTask) return cacheStatsTask;
+  const task = (async () => {
+    const session = gameView && !gameView.webContents.isDestroyed()
+      ? gameView.webContents.session
+      : null;
+    const cacheBytes = session ? await session.getCacheSize().catch(() => 0) : 0;
+    cacheStatsCache = {
+      httpBytes: cacheBytes,
+      diskBytes: cacheBytes,
+    };
+    cacheStatsAt = Date.now();
+    return cacheStatsCache;
+  })();
+  cacheStatsTask = task;
+  try {
+    return await task;
+  } finally {
+    if (cacheStatsTask === task) cacheStatsTask = null;
+  }
 }
 
 ipcMain.handle('cache:clear-cache', async () => {
   try {
-    if (gameView && !gameView.webContents.isDestroyed()) {
-      const session = gameView.webContents.session;
-      await session.clearCache();
-      await session.clearCodeCaches({}).catch(() => {});
-      await session.clearStorageData({
-        storages: ['serviceworkers', 'cachestorage', 'shadercache'],
-      });
-      await session.closeAllConnections();
+    if (cacheClearTask) {
+      await cacheClearTask;
+    } else {
+      const task = (async () => {
+        if (cacheStatsTask) await cacheStatsTask.catch(() => null);
+        if (gameView && !gameView.webContents.isDestroyed()) {
+          const session = gameView.webContents.session;
+          await session.clearCache();
+          await session.clearCodeCaches({}).catch(() => {});
+          await session.clearStorageData({
+            storages: ['serviceworkers', 'cachestorage', 'shadercache'],
+          });
+          await session.closeAllConnections();
+        }
+        cacheStatsCache = null;
+        cacheStatsAt = 0;
+      })();
+      cacheClearTask = task;
+      try {
+        await task;
+      } finally {
+        if (cacheClearTask === task) cacheClearTask = null;
+      }
     }
-    resourceStats = createResourceStats();
-    cacheStatsCache = null;
-    cacheStatsAt = 0;
-    sendToRenderer('resource:count', { ...resourceStats });
     debugLog('cache-clear-all', 'ok');
     return { ok: true, stats: await getCacheStats(true) };
   } catch (e) {

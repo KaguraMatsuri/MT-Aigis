@@ -941,7 +941,7 @@
   refreshBrowserState();
   refreshNetworkStatus(false);
   refreshGameNews(false);
-  refreshCache(true);
+  refreshCache(false);
   setTimeout(function () { Object.keys(pingFields).forEach(runPing); }, 700);
   setInterval(function () {
     if (!sidebarScrolling) refreshBrowserState(true);

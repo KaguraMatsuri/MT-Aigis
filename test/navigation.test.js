@@ -145,6 +145,20 @@ test('keeps sidebar scrolling free from live blur and periodic DOM refreshes', (
   assert.match(renderer, /!sidebarScrolling &&[\s\S]*?byId\('page-vault'\)\.classList\.contains\('active'\)/);
 });
 
+test('uses the native session cache size without recursive disk scans or per-resource bookkeeping', () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+
+  assert.match(main, /CACHE_STATS_TTL_MS = 15_000/);
+  assert.match(main, /if \(cacheClearTask\) await cacheClearTask\.catch/);
+  assert.match(main, /if \(cacheStatsTask\) return cacheStatsTask/);
+  assert.match(main, /if \(cacheStatsTask === task\) cacheStatsTask = null/);
+  assert.match(main, /cacheClearTask = task;[\s\S]*?if \(cacheClearTask === task\) cacheClearTask = null/);
+  assert.match(main, /session\.getCacheSize\(\)/);
+  assert.doesNotMatch(main, /function directorySize|CACHE_DIRECTORIES|gamePartitionPath/);
+  assert.doesNotMatch(main, /resourceStats|getResponseContentLength/);
+  assert.doesNotMatch(main, /dumpPageState|focusTimers/);
+});
+
 test('keeps the saved address outside app updates and clears the whole browsing session', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
 
