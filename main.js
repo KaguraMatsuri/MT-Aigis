@@ -43,6 +43,11 @@ const {
   pruneGameNewsDetailCache,
   trustedGameNewsUrl,
 } = require('./lib/game-news');
+const {
+  createAnonymousUsageClient,
+  createInstallationId,
+  isValidInstallationId,
+} = require('./lib/anonymous-usage');
 
 const WINDOW_W = 1320;
 const WINDOW_H = 760;
@@ -68,6 +73,9 @@ const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/KaguraMatsuri/MT-Ai
 const UPDATE_MANIFEST_URL = `${GITHUB_REPO}/releases/latest/download/latest-mac.yml`;
 const GAME_NEWS_CACHE_MS = 30 * 60 * 1000;
 const GAME_NEWS_LIMIT = 3;
+const TELEMETRY_ENDPOINT = process.env.MT_AIGIS_TELEMETRY_ENDPOINT ||
+  'https://mt-aigis-telemetry.mt-aigis-telemetry-worker.workers.dev';
+const TELEMETRY_START_FALLBACK_MS = 20_000;
 const THEME_COLORS = {
   dark: '#101011',
   light: '#f2f2f7',
@@ -225,7 +233,6 @@ let gameView = null;
 let overlayView = null;
 let overlayReady = null;
 let overlayState = null;
-let gameViewFallbackHidden = false;
 let aboutWindow = null;
 let focusSource = '';
 let scrollSource = '';
@@ -234,6 +241,7 @@ let navigationMode = 'boot';
 let sessionFlushTimer = null;
 let gameContentReady = false;
 let gameViewLoadingMasked = true;
+let gameViewFallbackHidden = normalizeTelemetryConsent(currentConfig.telemetry.consent) === null;
 let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
 let layoutPending = false;
@@ -252,11 +260,19 @@ let updateState = {
 };
 let updateDownloadTask = null;
 let updatePrompt = null;
+let telemetryStartFallbackTimer = null;
+const telemetryConsentWaiters = new Set();
 let gameNewsCache = { items: [], fetchedAt: 0 };
 let gameNewsTask = null;
 const gameNewsDetailCache = new Map();
 const gameNewsDetailTasks = new Map();
 let gameNewsDetailUrls = new Set();
+
+const anonymousUsage = createAnonymousUsageClient({
+  endpoint: TELEMETRY_ENDPOINT,
+  getInstallationId: () => currentConfig.telemetry.installationId,
+  onState: (state) => sendToRenderer('telemetry:state', getPublicTelemetryState(state)),
+});
 
 log.initialize();
 loadGameNewsDiskCache();
@@ -578,7 +594,9 @@ async function readLatestGithubRelease(manifestVersion = '') {
   return normalizeGithubRelease(await response.json(), manifestVersion, effectiveLanguage());
 }
 
-function showUpdateNotification(release) {
+async function showUpdateNotification(release) {
+  const canContinue = await waitForTelemetryConsent();
+  if (!canContinue) return 'later';
   if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve('later');
   return new Promise((resolve) => {
     updatePrompt = { release, resolve, surface: 'overlay' };
@@ -772,6 +790,7 @@ function createWindow() {
     return;
   }
   gameContentReady = false;
+  gameViewFallbackHidden = normalizeTelemetryConsent(currentConfig.telemetry.consent) === null;
   layoutPending = false;
   debugLog('runtime', {
     electron: process.versions.electron,
@@ -820,6 +839,8 @@ function createWindow() {
     forwardNativeEditShortcut(mainWindow.webContents, input);
   });
   mainWindow.on('closed', () => {
+    stopAnonymousUsageForWindow();
+    resolveTelemetryConsentWaiters(false);
     gameContentReady = false;
     layoutPending = false;
     if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
@@ -844,6 +865,7 @@ function createWindow() {
 
   createGameView();
   ensureOverlayView();
+  prepareAnonymousUsageForWindow();
 }
 
 function createGameView() {
@@ -1009,6 +1031,98 @@ function preconnectGameOrigins() {
   debugLog('game-preconnect', { origins });
 }
 
+function normalizeTelemetryConsent(value) {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function getPublicTelemetryState(clientState = anonymousUsage.getState()) {
+  const consent = normalizeTelemetryConsent(currentConfig.telemetry.consent);
+  return {
+    consent,
+    configured: !!clientState.configured,
+    status: consent === null
+      ? 'pending'
+      : consent
+        ? clientState.status
+        : 'disabled',
+    stats: consent && clientState.stats ? { ...clientState.stats } : null,
+  };
+}
+
+function ensureTelemetryInstallationId() {
+  if (isValidInstallationId(currentConfig.telemetry.installationId)) return false;
+  currentConfig.telemetry.installationId = createInstallationId();
+  return true;
+}
+
+function clearTelemetryStartFallback() {
+  if (telemetryStartFallbackTimer) clearTimeout(telemetryStartFallbackTimer);
+  telemetryStartFallbackTimer = null;
+}
+
+function startAnonymousUsage(initialDelayMs = 0) {
+  if (
+    currentConfig.telemetry.consent !== true ||
+    !mainWindow ||
+    mainWindow.isDestroyed()
+  ) return anonymousUsage.getState();
+  if (ensureTelemetryInstallationId()) store.save(currentConfig);
+  clearTelemetryStartFallback();
+  return anonymousUsage.start(initialDelayMs);
+}
+
+function prepareAnonymousUsageForWindow() {
+  clearTelemetryStartFallback();
+  if (currentConfig.telemetry.consent !== true) {
+    anonymousUsage.stop();
+    return;
+  }
+  if (gameContentReady) {
+    startAnonymousUsage(0);
+    return;
+  }
+  telemetryStartFallbackTimer = setTimeout(() => {
+    telemetryStartFallbackTimer = null;
+    startAnonymousUsage(0);
+  }, TELEMETRY_START_FALLBACK_MS);
+  if (typeof telemetryStartFallbackTimer.unref === 'function') {
+    telemetryStartFallbackTimer.unref();
+  }
+}
+
+function stopAnonymousUsageForWindow() {
+  clearTelemetryStartFallback();
+  anonymousUsage.stop();
+}
+
+function waitForTelemetryConsent() {
+  if (normalizeTelemetryConsent(currentConfig.telemetry.consent) !== null) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => telemetryConsentWaiters.add(resolve));
+}
+
+function resolveTelemetryConsentWaiters(canContinue = true) {
+  for (const resolve of telemetryConsentWaiters) resolve(canContinue);
+  telemetryConsentWaiters.clear();
+}
+
+function setTelemetryConsent(allowed) {
+  currentConfig.telemetry.consent = allowed === true;
+  if (currentConfig.telemetry.consent) {
+    ensureTelemetryInstallationId();
+  }
+  store.save(currentConfig);
+  if (currentConfig.telemetry.consent) prepareAnonymousUsageForWindow();
+  else stopAnonymousUsageForWindow();
+  gameViewFallbackHidden = false;
+  syncGameViewVisibility();
+  resolveTelemetryConsentWaiters(true);
+  const state = getPublicTelemetryState();
+  sendToRenderer('telemetry:state', state);
+  return state;
+}
+
 function normalizeConfig(rawConfig) {
   const base = defaultConfig();
   const source = rawConfig || {};
@@ -1037,6 +1151,14 @@ function normalizeConfig(rawConfig) {
       cookies: Array.isArray(source.session && source.session.cookies)
         ? source.session.cookies
         : [],
+    },
+    telemetry: {
+      ...base.telemetry,
+      ...(source.telemetry || {}),
+      consent: normalizeTelemetryConsent(source.telemetry && source.telemetry.consent),
+      installationId: isValidInstallationId(source.telemetry && source.telemetry.installationId)
+        ? source.telemetry.installationId
+        : '',
     },
   };
 }
@@ -1503,6 +1625,7 @@ function getPublicConfig() {
       effectiveLanguage: effectiveLanguage(),
     },
     storage: store.getStatus(),
+    telemetry: getPublicTelemetryState(),
     app: {
       version: APP_DISPLAY_VERSION,
       author: AUTHOR_NAME,
@@ -1699,6 +1822,7 @@ function runPageAdapters() {
 function markGameContentReady() {
   if (gameContentReady) return;
   gameContentReady = true;
+  if (currentConfig.telemetry.consent === true) startAnonymousUsage(0);
   Promise.all([applyGamePresentation(), focusAllGameContainers()]).finally(() => {
     if (!gameContentReady) return;
     gameViewLoadingMasked = false;
@@ -2043,6 +2167,25 @@ ipcMain.handle('language:set', (_, language) => {
   return setLanguage(language);
 });
 
+ipcMain.handle('telemetry:consent', (event, allowed) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id ||
+    typeof allowed !== 'boolean'
+  ) return getPublicTelemetryState();
+  return setTelemetryConsent(allowed);
+});
+
+ipcMain.handle('telemetry:state', (event) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) return null;
+  return getPublicTelemetryState();
+});
+
 ipcMain.handle('update:check', () => {
   return checkForUpdates();
 });
@@ -2073,6 +2216,7 @@ ipcMain.handle('config:save', async (_, nextConfig) => {
     proxy: nextConfig && nextConfig.proxy ? nextConfig.proxy : currentConfig.proxy,
     view: currentConfig.view,
     session: currentConfig.session,
+    telemetry: currentConfig.telemetry,
   });
   store.save(currentConfig);
   await applyProxySettings();
@@ -2345,6 +2489,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  stopAnonymousUsageForWindow();
   if (quitAfterFlush || !gameView || gameView.webContents.isDestroyed()) return;
   event.preventDefault();
   quitAfterFlush = true;

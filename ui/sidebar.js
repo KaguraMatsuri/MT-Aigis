@@ -14,6 +14,8 @@
   var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
   var currentLanguage = 'zh';
+  var telemetryState = null;
+  var telemetryConsentRequestPending = false;
   var alwaysOnTopEnabled = false;
   var alwaysOnTopRequestPending = false;
   var scrollLabels = {
@@ -55,6 +57,24 @@
       language: '语言',
       languageHelp: '默认跟随系统语言。',
       langAuto: '自动',
+      telemetryKicker: '匿名统计',
+      telemetryTitle: '使用人数',
+      telemetryOnline: '同时在线',
+      telemetryDaily: '今日活跃',
+      telemetryTotal: '累计使用',
+      telemetryJoin: '参与',
+      telemetryStop: '停止',
+      telemetryPending: '等待您的选择',
+      telemetryDisabled: '未参与匿名统计',
+      telemetryUnconfigured: '统计服务尚未配置',
+      telemetryConnecting: '正在同步匿名统计',
+      telemetryReady: '匿名安装统计已更新',
+      telemetryUnavailable: '暂时无法获取匿名统计',
+      telemetryConsentKicker: '首次启动',
+      telemetryConsentTitle: '您好！',
+      telemetryConsentBody: '出于一点点私心，开发者希望收集一下用户人数和在线人数，您可以通过下方选项选择是否同意。客户端只会发送随机匿名编号的不可逆哈希和在线心跳，用于安全地记录“用户 +1”；不会发送 DMM 账号、Cookie、硬件信息、页面或其他使用内容。如果您不希望被收集此数据，请点击“不允许”，这个请求弹窗将不会再弹出。谢谢您！！！',
+      telemetryAllow: '允许',
+      telemetryDeny: '不允许',
       pinWindow: '窗口置顶',
       unpinWindow: '取消置顶',
       updates: '更新',
@@ -162,6 +182,24 @@
       language: 'Language',
       languageHelp: 'Follows system language by default.',
       langAuto: 'Auto',
+      telemetryKicker: 'Anonymous Usage',
+      telemetryTitle: 'Usage Counts',
+      telemetryOnline: 'Online Now',
+      telemetryDaily: 'Active Today',
+      telemetryTotal: 'All-time Installs',
+      telemetryJoin: 'Join',
+      telemetryStop: 'Stop',
+      telemetryPending: 'Waiting for your choice',
+      telemetryDisabled: 'Anonymous usage is disabled',
+      telemetryUnconfigured: 'Usage service is not configured',
+      telemetryConnecting: 'Syncing anonymous usage',
+      telemetryReady: 'Anonymous installation counts updated',
+      telemetryUnavailable: 'Anonymous usage counts are temporarily unavailable',
+      telemetryConsentKicker: 'First Launch',
+      telemetryConsentTitle: 'Hello!',
+      telemetryConsentBody: 'As a small personal favor, the developer would like to count how many installations use MT-Aigis and how many are online. Please choose below. The client sends only an irreversible hash of a random anonymous identifier and an online heartbeat to record “user +1”; it never sends a DMM account, cookies, hardware information, pages, or other usage content. If you choose “Don’t Allow,” this request will never appear again. Thank you!!!',
+      telemetryAllow: 'Allow',
+      telemetryDeny: 'Don’t Allow',
       pinWindow: 'Keep Window on Top',
       unpinWindow: 'Stop Keeping Window on Top',
       updates: 'Updates',
@@ -269,6 +307,24 @@
       language: '言語',
       languageHelp: '既定ではシステム言語に従います。',
       langAuto: '自動',
+      telemetryKicker: '匿名統計',
+      telemetryTitle: '利用数',
+      telemetryOnline: '現在オンライン',
+      telemetryDaily: '本日の利用',
+      telemetryTotal: '累計利用',
+      telemetryJoin: '参加する',
+      telemetryStop: '停止する',
+      telemetryPending: '選択をお待ちしています',
+      telemetryDisabled: '匿名統計には参加していません',
+      telemetryUnconfigured: '統計サービスは未設定です',
+      telemetryConnecting: '匿名統計を同期中',
+      telemetryReady: '匿名インストール数を更新しました',
+      telemetryUnavailable: '匿名統計を一時的に取得できません',
+      telemetryConsentKicker: '初回起動',
+      telemetryConsentTitle: 'こんにちは！',
+      telemetryConsentBody: '開発者のささやかなお願いとして、MT-Aigis の利用数とオンライン数を数えたいと考えています。下の選択肢から同意するかをお選びください。クライアントが送信するのは、ランダムな匿名 ID の不可逆ハッシュとオンライン・ハートビートだけで、「利用者 +1」を安全に記録するために使います。DMM アカウント、Cookie、ハードウェア情報、閲覧ページ、その他の利用内容は送信しません。「許可しない」を選ぶと、この確認は今後表示されません。ありがとうございます！！！',
+      telemetryAllow: '許可する',
+      telemetryDeny: '許可しない',
       pinWindow: 'ウインドウを最前面に表示',
       unpinWindow: '最前面表示を解除',
       updates: '更新',
@@ -420,6 +476,7 @@
     applyAlwaysOnTopState(alwaysOnTopEnabled);
     updateScrollControl(byId('scroll-level').value || 5);
     if (gameNewsState) renderGameNews(gameNewsState);
+    if (telemetryState) renderTelemetryState(telemetryState);
   }
 
   function showPage(name) {
@@ -752,6 +809,58 @@
     byId('update-state').textContent = state && state.message ? state.message : t('ready');
   }
 
+  function telemetryStatusKey(state) {
+    if (!state || state.consent === null) return 'telemetryPending';
+    if (state.consent === false) return 'telemetryDisabled';
+    if (!state.configured || state.status === 'unconfigured') return 'telemetryUnconfigured';
+    if (state.status === 'connecting') return 'telemetryConnecting';
+    if (state.status === 'ready') return 'telemetryReady';
+    if (state.status === 'unavailable') return 'telemetryUnavailable';
+    return 'telemetryConnecting';
+  }
+
+  function renderTelemetryState(state) {
+    telemetryState = state || { consent: null, configured: false, status: 'pending', stats: null };
+    var stats = telemetryState.stats || {};
+    var toggle = byId('btn-telemetry-toggle');
+    toggle.textContent = t(telemetryState.consent === true ? 'telemetryStop' : 'telemetryJoin');
+    toggle.setAttribute('aria-pressed', String(telemetryState.consent === true));
+    byId('telemetry-online').textContent = Number.isSafeInteger(stats.onlineNow)
+      ? String(stats.onlineNow)
+      : '—';
+    byId('telemetry-daily').textContent = Number.isSafeInteger(stats.dailyActive)
+      ? String(stats.dailyActive)
+      : '—';
+    byId('telemetry-total').textContent = Number.isSafeInteger(stats.totalInstallations)
+      ? String(stats.totalInstallations)
+      : '—';
+    byId('telemetry-status').textContent = t(telemetryStatusKey(telemetryState));
+    if (telemetryState.consent === null) showTelemetryConsentDialog();
+  }
+
+  function showTelemetryConsentDialog() {
+    var dialog = byId('telemetry-consent-dialog');
+    if (dialog.open || telemetryConsentRequestPending) return;
+    dialog.showModal();
+    setTimeout(function () { byId('btn-telemetry-deny').focus(); }, 0);
+  }
+
+  function respondToTelemetryConsent(allowed) {
+    if (telemetryConsentRequestPending) return;
+    var dialog = byId('telemetry-consent-dialog');
+    telemetryConsentRequestPending = true;
+    if (dialog.open) dialog.close();
+    api.invoke('telemetry:consent', allowed === true).then(function (state) {
+      renderTelemetryState(state);
+    }).catch(function (error) {
+      setSettingsMessage(errorText(error), true);
+      telemetryConsentRequestPending = false;
+      if (!telemetryState || telemetryState.consent === null) showTelemetryConsentDialog();
+    }).finally(function () {
+      telemetryConsentRequestPending = false;
+    });
+  }
+
   function showUpdatePrompt(release) {
     release = release || {};
     var dialog = byId('update-dialog');
@@ -855,6 +964,22 @@
   byId('btn-check-update').addEventListener('click', function () {
     api.invoke('update:check').then(updateUpdateState);
   });
+  byId('btn-telemetry-toggle').addEventListener('click', function () {
+    if (!telemetryState || telemetryState.consent === null) {
+      showTelemetryConsentDialog();
+      return;
+    }
+    respondToTelemetryConsent(telemetryState.consent !== true);
+  });
+  byId('btn-telemetry-deny').addEventListener('click', function () {
+    respondToTelemetryConsent(false);
+  });
+  byId('btn-telemetry-allow').addEventListener('click', function () {
+    respondToTelemetryConsent(true);
+  });
+  byId('telemetry-consent-dialog').addEventListener('cancel', function (event) {
+    event.preventDefault();
+  });
   byId('btn-update-download').addEventListener('click', function () {
     respondToUpdatePrompt('install');
   });
@@ -952,6 +1077,7 @@
   api.on('browser:error', function (message) { setRuntime(message || t('loadFailed'), true); });
   api.on('sidebar:state', function (state) { applySidebarState(!!state.collapsed, false); });
   api.on('native-overlay:closed', function () { currentGameNewsUrl = ''; });
+  api.on('telemetry:state', renderTelemetryState);
   api.on('update:state', updateUpdateState);
   api.on('update:prompt', showUpdatePrompt);
 
@@ -968,6 +1094,7 @@
       byId('about-version').textContent = config.app.version;
       byId('about-author').textContent = config.app.author;
     }
+    renderTelemetryState(config.telemetry);
   });
   api.invoke('update:state').then(updateUpdateState);
   refreshVault();

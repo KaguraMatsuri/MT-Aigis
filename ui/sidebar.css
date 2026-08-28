@@ -813,6 +813,34 @@ input:focus-visible {
   font-size: 10px;
 }
 
+.telemetry-metrics {
+  margin: 14px 0 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.telemetry-metrics > div {
+  min-width: 0;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-strong) 72%, transparent);
+}
+
+.telemetry-metrics span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telemetry-metrics strong {
+  font: 700 14px/1.2 "SF Mono", Menlo, monospace;
+}
+
 .cache-actions {
   display: grid;
   gap: 7px;
@@ -1143,6 +1171,10 @@ select {
   white-space: pre-line;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.telemetry-consent-copy {
+  color: var(--text);
 }
 
 .game-news-dialog-body {

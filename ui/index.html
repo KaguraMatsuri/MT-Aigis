@@ -192,6 +192,22 @@
         <section class="card">
           <div class="card-head">
             <div>
+              <p class="card-kicker" data-i18n="telemetryKicker">匿名统计</p>
+              <h2 data-i18n="telemetryTitle">使用人数</h2>
+            </div>
+            <button id="btn-telemetry-toggle" class="link-button" type="button" aria-pressed="false" data-i18n="telemetryJoin">参与</button>
+          </div>
+          <div class="telemetry-metrics">
+            <div><span data-i18n="telemetryOnline">同时在线</span><strong id="telemetry-online">—</strong></div>
+            <div><span data-i18n="telemetryDaily">今日活跃</span><strong id="telemetry-daily">—</strong></div>
+            <div><span data-i18n="telemetryTotal">累计使用</span><strong id="telemetry-total">—</strong></div>
+          </div>
+          <p id="telemetry-status" class="runtime" data-i18n="telemetryPending">等待您的选择</p>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
               <p class="card-kicker" data-i18n="networkKicker">网络</p>
               <h2 data-i18n="network">连接状态</h2>
             </div>
@@ -248,6 +264,21 @@
   <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
     <span id="mute-label" data-i18n="unmuted">静音游戏</span>
   </button>
+
+  <dialog id="telemetry-consent-dialog" class="update-dialog" aria-labelledby="telemetry-consent-title" aria-describedby="telemetry-consent-copy">
+    <div class="update-dialog-head">
+      <span class="update-dialog-mark" aria-hidden="true">+1</span>
+      <div>
+        <p class="update-dialog-kicker" data-i18n="telemetryConsentKicker">首次启动</p>
+        <h2 id="telemetry-consent-title" data-i18n="telemetryConsentTitle">您好！</h2>
+      </div>
+    </div>
+    <div id="telemetry-consent-copy" class="update-notes telemetry-consent-copy" data-i18n="telemetryConsentBody">出于一点点私心，开发者希望收集一下用户人数和在线人数，您可以通过下方选项选择是否同意。客户端只会发送随机匿名编号的不可逆哈希和在线心跳，用于安全地记录“用户 +1”；不会发送 DMM 账号、Cookie、硬件信息、页面或其他使用内容。如果您不希望被收集此数据，请点击“不允许”，这个请求弹窗将不会再弹出。谢谢您！！！</div>
+    <div class="update-dialog-actions">
+      <button id="btn-telemetry-deny" class="control" type="button" data-i18n="telemetryDeny">不允许</button>
+      <button id="btn-telemetry-allow" class="control primary" type="button" data-i18n="telemetryAllow">允许</button>
+    </div>
+  </dialog>
 
   <dialog id="update-dialog" class="update-dialog" aria-labelledby="update-dialog-title" aria-describedby="update-dialog-notes">
     <div class="update-dialog-head">
