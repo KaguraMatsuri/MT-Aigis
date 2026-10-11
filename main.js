@@ -288,6 +288,8 @@ let telemetryStartFallbackTimer = null;
 const telemetryConsentWaiters = new Set();
 let gameNewsCache = { items: [], fetchedAt: 0 };
 let gameNewsTask = null;
+let gameNewsForceDetails = false;
+let gameNewsDiskCacheContent = '';
 const gameNewsDetailCache = new Map();
 const gameNewsDetailTasks = new Map();
 let gameNewsDetailUrls = new Set();
@@ -334,6 +336,12 @@ function loadGameNewsDiskCache() {
       cached.items,
       GAME_NEWS_LIMIT
     );
+    gameNewsDiskCacheContent = `${JSON.stringify(buildGameNewsDiskCache(
+      gameNewsCache.items,
+      gameNewsCache.fetchedAt,
+      gameNewsDetailCache,
+      GAME_NEWS_LIMIT
+    ))}\n`;
     debugLog('game-news-cache-loaded', {
       items: cached.items.length,
       details: gameNewsDetailCache.size,
@@ -351,11 +359,14 @@ function saveGameNewsDiskCache() {
       gameNewsDetailCache,
       GAME_NEWS_LIMIT
     );
+    const content = `${JSON.stringify(payload)}\n`;
+    if (content === gameNewsDiskCacheContent) return;
     const directory = path.dirname(GAME_NEWS_CACHE_FILE);
     const temporaryFile = `${GAME_NEWS_CACHE_FILE}.tmp`;
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(temporaryFile, `${JSON.stringify(payload)}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(temporaryFile, content, { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(temporaryFile, GAME_NEWS_CACHE_FILE);
+    gameNewsDiskCacheContent = content;
   } catch (error) {
     debugLog('game-news-cache-write-error', error && error.message ? error.message : String(error));
   }
@@ -1702,11 +1713,17 @@ async function fetchThroughGameSession(url, options = {}) {
 async function getGameNews(force = false) {
   const cacheAge = Date.now() - gameNewsCache.fetchedAt;
   if (!force && gameNewsCache.items.length && cacheAge < GAME_NEWS_CACHE_MS) {
-    await primeGameNewsDetails(gameNewsCache.items);
+    primeGameNewsDetails(gameNewsCache.items).catch((error) => {
+      debugLog('game-news-error', error && error.message ? error.message : String(error));
+    });
     return { ...gameNewsCache, stale: false, error: false };
   }
-  if (gameNewsTask) return gameNewsTask;
+  if (gameNewsTask) {
+    if (force) gameNewsForceDetails = true;
+    return gameNewsTask;
+  }
 
+  gameNewsForceDetails = !!force;
   gameNewsTask = (async () => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -1720,7 +1737,10 @@ async function getGameNews(force = false) {
       if (!parsedItems.length) throw new Error('No valid game news entries were found.');
       const items = latestGameNewsItems(parsedItems, GAME_NEWS_LIMIT);
       gameNewsCache = { items, fetchedAt: Date.now() };
-      await primeGameNewsDetails(items);
+      primeGameNewsDetails(items, gameNewsForceDetails).catch((error) => {
+        debugLog('game-news-error', error && error.message ? error.message : String(error));
+      });
+      saveGameNewsDiskCache();
       return { ...gameNewsCache, stale: false, error: false };
     } catch (error) {
       debugLog('game-news-error', error && error.message ? error.message : String(error));
@@ -1732,6 +1752,7 @@ async function getGameNews(force = false) {
     } finally {
       clearTimeout(timeout);
       gameNewsTask = null;
+      gameNewsForceDetails = false;
     }
   })();
   return gameNewsTask;
@@ -1754,25 +1775,33 @@ async function getGameNewsDetail(rawUrl) {
       if (!response.ok) throw new Error(`Game news detail HTTP ${response.status}`);
       const detail = parseGameNewsDetail(await response.text(), url);
       if (!detail) throw new Error('Game news detail could not be parsed.');
-      if (gameNewsDetailUrls.has(url)) gameNewsDetailCache.set(url, detail);
+      if (gameNewsDetailTasks.get(url) === task && gameNewsDetailUrls.has(url)) {
+        gameNewsDetailCache.set(url, detail);
+      }
       return detail;
     } finally {
       clearTimeout(timeout);
-      gameNewsDetailTasks.delete(url);
+      if (gameNewsDetailTasks.get(url) === task) gameNewsDetailTasks.delete(url);
     }
   })();
   gameNewsDetailTasks.set(url, task);
   return task;
 }
 
-async function primeGameNewsDetails(items) {
+async function primeGameNewsDetails(items, force = false) {
   gameNewsDetailUrls = pruneGameNewsDetailCache(
     gameNewsDetailCache,
     items,
     GAME_NEWS_LIMIT
   );
+  if (force) {
+    for (const item of items) {
+      gameNewsDetailCache.delete(item.url);
+      gameNewsDetailTasks.delete(item.url);
+    }
+  }
   await Promise.allSettled(items.map((item) => getGameNewsDetail(item.url)));
-  saveGameNewsDiskCache();
+  if (items === gameNewsCache.items) saveGameNewsDiskCache();
 }
 
 async function pingTarget(targetKey) {
@@ -2507,7 +2536,7 @@ async function getCacheStats(force = false) {
     const session = gameView && !gameView.webContents.isDestroyed()
       ? gameView.webContents.session
       : null;
-    const cacheBytes = session ? await session.getCacheSize().catch(() => 0) : 0;
+    const cacheBytes = session ? await session.getCacheSize() : 0;
     cacheStatsCache = {
       httpBytes: cacheBytes,
       diskBytes: cacheBytes,
