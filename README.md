@@ -7,7 +7,7 @@
 <img width="3456" height="2160" alt="MT-Aigis running Millennium War Aigis on macOS" src="https://github.com/user-attachments/assets/feacd0f6-6de9-4831-be2f-2f18cccdabb4" />
 
 
-[中文](#中文) | [English](#english) | [下载最新版本 / Download](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest)
+[中文](#中文) | [繁體中文](#繁體中文) | [English](#english) | [下载最新版本 / Download](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest)
 
 ---
 
@@ -26,16 +26,17 @@
 - [适配] 滚动逻辑: 默认, 在 macOS 下, 对游戏进行滚动操作时, 游戏页面会进行高速的多页滚动. MT-Aigis 对此进行了修复, 同时给予可调整的滚动选项.
 - [适配] 图标: 为 macOS 26 / 27 进行图标 (深色模式 / 浅色模式 / 透明模式 / 色彩模式) 的适配.
 - [适配] 界面: 为 macOS 适配 深色模式 / 浅色模式.
-- [适配] 语言: 根据 macOS 语言设置自动切换 中文 / 英文 / 日文.
+- [适配] 语言: 根据 macOS 语言设置自动切换 简体中文 / 繁体中文 / 英文 / 日文，也可手动选择。
 - [适配] 画面: 可随客户端窗口变化自调整游戏窗口.
 - [功能] 关闭游戏音量.
-- [功能] 密码库: 侧边栏中, 可手动键入 E-mail 与 Password / TOTP, 并点击自动复制. 更新: 现已支持自动填充 账户 / 密码 / 2FA.
+- [功能] 密码库: 侧边栏中, 可手动键入 E-mail 与 Password / TOTP, 并点击自动复制. 更新: 现已支持自动填充 账户 / 密码 / 2FA. 密码库采用 AES-256-GCM 加密，现有密码将无感自动迁移。
+- [功能] 跳过剧情: 长按按钮或绑定按键连续点击，默认绑定 B，默认每秒 5 次，可在设置中调整为每秒 1–10 次、更改绑定按键或彻底关闭。
 - [功能] 缓存 / Cookies 统计与清理.
 - [优化] 调整缓存读取与游戏链接预连接流程, 缩短游戏启动和资源加载时间.
 - [功能] 监测出口 IP, 提供对不同域名的 Ping 检测功能.
 - [功能] 自动检测并提取官方公告.
 - [功能] 自定义游戏链接, 可以加载其他版本 Aigis(虽然有适配但因合规原因不建议加载Fanza版哟).
-- [规划更新] 自定义代理. 自动点击器. 指针灵敏度. 更现代化的GUI.
+- [规划更新] 自定义代理. 指针灵敏度. 更现代化的GUI.
 
 ### 安装提示
 
@@ -45,7 +46,46 @@
 xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
 ```
 
-[English](#english) | [下载最新版本](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest) | [返回顶部](#top)
+[繁體中文](#繁體中文) | [English](#english) | [下载最新版本](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest) | [返回顶部](#top)
+
+---
+
+## 繁體中文
+
+千年戰爭Aigis client for macOS
+
+為 macOS 26 / 27 客製化與適配的千年戰爭Aigis遊戲用戶端。
+
+（同樣適配於 macOS 15，更低版本與 Intel Mac 未經測試。）
+
+! - ! 有什麼事隨時在 NGA／貼吧／QQ（1283962190）叫我就行，長期在公司摸魚。
+
+### 主要功能
+
+- [適配] 捲動邏輯：預設情況下，在 macOS 中對遊戲進行捲動操作時，遊戲頁面會高速捲動多頁。MT-Aigis 修復了此問題，並提供可調整的捲動選項。
+- [適配] 圖示：適配 macOS 26 / 27 的深色、淺色、透明與色彩模式圖示。
+- [適配] 介面：適配 macOS 深色模式與淺色模式。
+- [適配] 語言：根據 macOS 語言設定自動切換簡體中文／繁體中文／英文／日文，也可手動選擇。
+- [適配] 畫面：可隨用戶端視窗變化自動調整遊戲視窗。
+- [功能] 關閉遊戲音量。
+- [功能] 密碼庫：可在側邊欄手動輸入 E-mail 與 Password / TOTP，並點擊自動複製。更新：現已支援自動填入帳號／密碼／2FA。密碼庫採用 AES-256-GCM 加密，現有密碼將無感自動遷移。
+- [功能] 跳過劇情：長按按鈕或綁定按鍵連續點擊，預設綁定 B，預設每秒 5 次，可在設定中調整為每秒 1–10 次、更改綁定按鍵或徹底關閉。
+- [功能] 快取／Cookies 統計與清理。
+- [最佳化] 調整快取讀取與遊戲連結預先連線流程，縮短遊戲啟動和資源載入時間。
+- [功能] 監測出口 IP，提供不同網域的 Ping 檢測功能。
+- [功能] 自動偵測並擷取官方公告。
+- [功能] 自訂遊戲連結，可以載入其他版本的 Aigis（雖然有適配，但因合規原因不建議載入 Fanza 版喲）。
+- [規劃更新] 自訂代理、游標靈敏度、更現代化的 GUI。
+
+### 安裝提示
+
+如果提示軟體已損毀，請執行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
+```
+
+[中文](#中文) | [English](#english) | [下載最新版本](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest) | [返回頂部](#top)
 
 ---
 
@@ -64,16 +104,17 @@ If you need anything, feel free to reach me through NGA, Tieba, or QQ (128396219
 - [Compatibility] Scrolling: By default, scrolling in the game on macOS can move through multiple pages at high speed. MT-Aigis fixes this behavior and provides adjustable scrolling options.
 - [Compatibility] Icon: Supports the dark, light, clear, and tinted icon appearances used by macOS 26 / 27.
 - [Compatibility] Interface: Supports the macOS dark and light appearances.
-- [Compatibility] Language: Automatically switches between Chinese, English, and Japanese according to the macOS language setting.
+- [Compatibility] Language: Automatically switches between Simplified Chinese, Traditional Chinese, English, and Japanese according to the macOS language setting, with manual selection also available.
 - [Compatibility] Game View: Automatically adjusts the game view when the client window changes size.
 - [Feature] Mute the game.
-- [Feature] Vault: Manually enter an E-mail, Password, or TOTP in the sidebar and copy it with one click. Update: Account, password, and 2FA autofill are now supported.
+- [Feature] Vault: Manually enter an E-mail, Password, or TOTP in the sidebar and copy it with one click. Update: Account, password, and 2FA autofill are now supported. The vault uses AES-256-GCM encryption, and existing passwords are migrated automatically without user interaction.
+- [Feature] Skip Story: Hold the button or the bound key to click repeatedly. The default key is B and the default rate is 5 clicks per second. Settings allow you to adjust the rate from 1 to 10 clicks per second, change the key binding, or disable the feature completely.
 - [Feature] View and clear cache and cookies.
 - [Optimization] Optimizes cache reads and preconnects to game endpoints to shorten game startup and resource loading times.
 - [Feature] View the public IP address and test the connection to different domains.
 - [Feature] Automatically detect and retrieve official announcements.
 - [Feature] Load other Aigis versions with a custom game URL. Although adapted, loading the Fanza version is not recommended for compliance reasons.
-- [Planned] Custom proxy, auto clicker, pointer sensitivity, and a more modern GUI.
+- [Planned] Custom proxy, pointer sensitivity, and a more modern GUI.
 
 ### Installation Note
 
@@ -83,4 +124,4 @@ If macOS reports that the app is damaged, run:
 xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
 ```
 
-[中文](#中文) | [Download the latest version](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest) | [Back to top](#top)
+[中文](#中文) | [繁體中文](#繁體中文) | [Download the latest version](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest) | [Back to top](#top)

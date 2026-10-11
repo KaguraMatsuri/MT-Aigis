@@ -29,14 +29,17 @@ test('uses the official compiled macOS Icon asset', () => {
   assert.match(afterPack, /CFBundleIconName', '-string', 'Icon'/);
 });
 
-test('keeps the 1.2.0 display and bundle version aligned', () => {
+test('keeps the 1.3.0 display and bundle version aligned', () => {
   const packageJson = JSON.parse(read('package.json'));
 
-  assert.equal(packageJson.version, '1.2.0');
-  assert.equal(packageJson.build.mac.bundleVersion, '1.2.0');
-  assert.match(read('main.js'), /APP_DISPLAY_VERSION = '1\.2\.0'/);
-  assert.match(read('ui/index.html'), /about-version">1\.2\.0</);
-  assert.match(read('ui/about.html'), /version-value">1\.2\.0</);
+  assert.equal(packageJson.version, '1.3.0');
+  const lock = JSON.parse(read('package-lock.json'));
+  assert.equal(lock.version, packageJson.version);
+  assert.equal(lock.packages[''].version, packageJson.version);
+  assert.equal(packageJson.build.mac.bundleVersion, '1.3.0');
+  assert.match(read('main.js'), /APP_DISPLAY_VERSION = '1\.3\.0'/);
+  assert.match(read('ui/index.html'), /about-version">1\.3\.0</);
+  assert.match(read('ui/about.html'), /version-value">1\.3\.0</);
 });
 
 test('keeps the QQ contact aligned across both about views', () => {
@@ -61,7 +64,7 @@ test('builds releases without requiring an unavailable Xcode 26 actool', () => {
   assert.match(releaseWorkflow, /dist\/MT-Aigis-\$\{\{ steps\.release_metadata\.outputs\.version \}\}-arm64\.dmg/);
   assert.match(releaseWorkflow, /dist\/MT-Aigis-\$\{\{ steps\.release_metadata\.outputs\.version \}\}-arm64\.zip/);
   assert.match(releaseWorkflow, /dist\/latest-mac\.yml/);
-  assert.match(read('main.js'), /matchesSha512\(digest\.digest\('base64'\), manifest\.dmg\.sha512\)/);
+  assert.match(read('main.js'), /matchesSha512\(digest\.digest\('base64'\), dmg\.sha512\)/);
 });
 
 test('publishes an absolute update URL for legacy clients', () => {
