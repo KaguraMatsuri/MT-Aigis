@@ -217,7 +217,7 @@ test('passes the effective client language through the existing autofill suggest
   Object.assign(main.context, {
     ipcMain: { handle(channel, callback) { assert.equal(channel, 'autofill:suggestion'); handler = callback; } },
     assertTrustedAutofillFrame() {},
-    vault: { status() { return { exists: true }; }, load() { return { email: 'test@example.com', password: 'secret', twofa: '' }; } },
+    vault: { status() { return { exists: true, data: { email: 'test@example.com', password: 'secret', twofa: '' } }; } },
     getAutofillSuggestion,
   });
   vm.runInContext(section(mainSource, "ipcMain.handle('autofill:suggestion'", "ipcMain.handle('autofill:fill'"), main.context);

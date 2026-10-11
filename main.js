@@ -2270,15 +2270,21 @@ function existingLegacyCredentialFiles() {
 function readLegacyCredentials() {
   for (const filePath of existingLegacyCredentialFiles()) {
     try {
-      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      return {
-        email: String(data.email || '').trim(),
-        password: String(data.password || ''),
-        twofa: String(data.twofa || data.twoFactorCode || '').trim(),
-      };
+      return new PlainVault(filePath).load();
     } catch {}
   }
   return emptyVault();
+}
+
+function migrateLegacyCredentials() {
+  for (const filePath of existingLegacyCredentialFiles()) {
+    try {
+      const data = new PlainVault(filePath).load();
+      if (!vault.exists() && Object.values(data).some(Boolean)) vault.save(data);
+    } catch (error) {
+      debugLog('legacy-vault-migrate-error', error && (error.code || error.name) || 'Error');
+    }
+  }
 }
 
 function maskSecret(value, length = 8) {
@@ -2287,8 +2293,8 @@ function maskSecret(value, length = 8) {
 }
 
 function vaultViewModel() {
-  const status = vault.status();
-  const data = status.exists && !status.error ? vault.load() : emptyVault();
+  const status = vault.status(true);
+  const data = status.exists && !status.error ? status.data : emptyVault();
   return {
     exists: status.exists,
     updatedAt: status.updatedAt,
@@ -2385,7 +2391,7 @@ function assertTrustedAutofillFrame(event) {
 
 ipcMain.handle('autofill:suggestion', (event) => {
   assertTrustedAutofillFrame(event);
-  const status = vault.status();
+  const status = vault.status(true);
   if (!status.exists || status.error) {
     return {
       available: false,
@@ -2393,7 +2399,7 @@ ipcMain.handle('autofill:suggestion', (event) => {
       fields: { username: false, password: false, totp: false },
     };
   }
-  return { ...getAutofillSuggestion(vault.load()), language: effectiveLanguage() };
+  return { ...getAutofillSuggestion(status.data), language: effectiveLanguage() };
 });
 
 ipcMain.handle('autofill:fill', (event, payload) => {
@@ -2507,6 +2513,7 @@ ipcMain.handle('cache:stats', async (_, force) => {
 });
 
 app.whenReady().then(() => {
+  migrateLegacyCredentials();
   configureAboutPanel();
   setupAutoUpdater();
   Menu.setApplicationMenu(buildAppMenu());

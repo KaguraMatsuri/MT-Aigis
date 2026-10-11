@@ -616,6 +616,7 @@
 
   function applySidebarState(collapsed, notifyMain) {
     var sidebar = byId('sidebar');
+    var wasCollapsed = sidebar.classList.contains('collapsed');
     sidebar.classList.toggle('collapsed', collapsed);
     document.body.classList.toggle('sidebar-collapsed', collapsed);
     var toggleButton = byId('btn-toggle-sidebar');
@@ -623,6 +624,11 @@
     toggleButton.setAttribute('aria-label', collapsed ? t('expandSidebar') : t('collapseSidebar'));
     toggleButton.setAttribute('aria-expanded', String(!collapsed));
     if (notifyMain) api.invoke('sidebar:toggle', collapsed ? 'collapse' : 'expand');
+    if (
+      wasCollapsed && !collapsed &&
+      byId('page-vault').classList.contains('active') &&
+      byId('vault-edit').classList.contains('hidden')
+    ) refreshVault();
   }
 
   function waitForSidebarTransition(sidebar) {
@@ -879,8 +885,8 @@
     byId('secret-email').textContent = state.fields.email;
     byId('secret-password').textContent = state.fields.password;
     byId('secret-twofa').textContent = state.fields.twofa;
-    byId('vault-status-title').textContent = !state.exists ? t('vaultMissing') : t('vaultSaved');
-    byId('vault-status-copy').textContent = !state.exists ? t('vaultCreate') : t('vaultCopy');
+    byId('vault-status-title').textContent = state.error ? t('readFailed') : !state.exists ? t('vaultMissing') : t('vaultSaved');
+    byId('vault-status-copy').textContent = state.error ? errorText(state.error) : !state.exists ? t('vaultCreate') : t('vaultCopy');
     updateTotpProgress();
   }
 
@@ -1239,6 +1245,7 @@
   setInterval(function () {
     if (
       !sidebarScrolling &&
+      !document.body.classList.contains('sidebar-collapsed') &&
       byId('page-vault').classList.contains('active') &&
       byId('vault-edit').classList.contains('hidden')
     ) {
