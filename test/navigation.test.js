@@ -92,7 +92,7 @@ test('keeps the sidebar toggle independent and resizes the live game in sync', (
   assert.match(containerFocus, /host === 'drc1bk94f7rq8\.cloudfront\.net'/);
   assert.match(gameFocus, /configure\(options\)/);
   assert.match(gameFocus, /observer\.disconnect\(\);[\s\S]*?observerActive = false/);
-  assert.match(gameFocus, /left', `calc\(50% - \$\{GAME_WIDTH \/ 2\}px\)`/);
+  assert.match(gameFocus, /left', `calc\(50% - \$\{gameWidth \/ 2\}px\)`/);
   assert.match(gameFocus, /reason: 'game-content-loading'/);
   assert.match(gameFocus, /transform \$\{duration\}ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/);
   assert.match(gameFocus, /animateUserScale/);

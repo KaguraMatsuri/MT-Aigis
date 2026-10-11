@@ -263,11 +263,12 @@ let containerFocusSource = '';
 let navigationMode = 'boot';
 let sessionFlushTimer = null;
 let gameContentReady = false;
+let gameContentSize = null;
+let gameContentEpoch = 0;
 let gameViewLoadingMasked = true;
 let gameViewFallbackHidden = normalizeTelemetryConsent(currentConfig.telemetry.consent) === null;
 let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
-let layoutPending = false;
 let layoutPresentationTimer = null;
 let sidebarTransitionActive = false;
 let cacheStatsCache = null;
@@ -812,9 +813,8 @@ function createWindow() {
     mainWindow.focus();
     return;
   }
-  gameContentReady = false;
+  resetGameContent();
   gameViewFallbackHidden = normalizeTelemetryConsent(currentConfig.telemetry.consent) === null;
-  layoutPending = false;
   debugLog('runtime', {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -864,8 +864,9 @@ function createWindow() {
   mainWindow.on('closed', () => {
     stopAnonymousUsageForWindow();
     resolveTelemetryConsentWaiters(false);
-    gameContentReady = false;
-    layoutPending = false;
+    resetGameContent();
+    sidebarTransitionActive = false;
+    sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
     if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
     layoutPresentationTimer = null;
     gameViewAttached = false;
@@ -932,6 +933,8 @@ function createGameView() {
 
   gameView.webContents.on('did-frame-finish-load', (event, isMainFrame, frameProcessId, frameRoutingId) => {
     try {
+      const view = gameView;
+      const epoch = gameContentEpoch;
       const frames = [
         gameView.webContents.mainFrame,
         ...gameView.webContents.mainFrame.framesInSubtree,
@@ -943,14 +946,16 @@ function createGameView() {
         );
       const adapterTask = installGameFrameAdapter(frame);
       if (frame && isPlayableGameFrame(frame.url)) {
-        adapterTask.finally(markGameContentReady);
+        adapterTask.finally(() => {
+          if (gameView === view && gameContentEpoch === epoch) markGameContentReady();
+        });
       }
     } catch (_) {}
   });
 
   gameView.webContents.on('did-start-navigation', (_, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
-    gameContentReady = false;
+    resetGameContent();
     gameViewLoadingMasked = isGameUrl(url);
     syncGameViewVisibility();
   });
@@ -1333,22 +1338,20 @@ function resolveUpdatePrompt(action) {
 
 function updateLayout(debounce) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (debounce !== false && layoutPending) return;
-  layoutPending = true;
-  var apply = function () {
-    layoutPending = false;
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (overlayState) applyOverlayBounds();
-    if (!gameView || !gameViewAttached) return;
-    applyGameViewBounds();
-    if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
-    layoutPresentationTimer = setTimeout(() => {
-      layoutPresentationTimer = null;
-      applyGamePresentation();
-    }, debounce === false ? 20 : 90);
-  };
-  if (debounce === false) { apply(); }
-  else { setImmediate(apply); }
+  if (overlayState) applyOverlayBounds();
+  if (!gameView || !gameViewAttached) return;
+  applyGameViewBounds();
+  if (sidebarTransitionActive) {
+    sidebarTransitionActive = false;
+    gameView.webContents.executeJavaScript(
+      'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.endViewportTransition() : null'
+    ).catch(() => null);
+  }
+  if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
+  layoutPresentationTimer = setTimeout(() => {
+    layoutPresentationTimer = null;
+    applyGamePresentation();
+  }, debounce === false ? 20 : 90);
 }
 
 function applyGameViewBounds(sidebarWidth) {
@@ -1398,7 +1401,7 @@ function attachNavigationHandlers() {
   });
 
   gameView.webContents.on('did-navigate', (_, url) => {
-    gameContentReady = false;
+    resetGameContent();
     gameViewLoadingMasked = isGameUrl(url);
     syncGameViewVisibility();
     debugLog('did-navigate', url);
@@ -1483,7 +1486,7 @@ function loadGameHome() {
 function loadDirectGame(reason) {
   if (!gameView || gameView.webContents.isDestroyed()) return;
   const targetUrl = getHomeUrl();
-  gameContentReady = false;
+  resetGameContent();
   gameViewLoadingMasked = isGameUrl(targetUrl);
   syncGameViewVisibility();
   navigationMode = isGameUrl(targetUrl) ? 'game' : 'custom';
@@ -1503,7 +1506,7 @@ function scheduleSessionFlush(reason) {
 }
 
 function handleBeforeInputEvent(event, input) {
-  if (!input || (!input.control && !input.meta)) return;
+  if (!input || input.type !== 'keyDown' || (!input.control && !input.meta)) return;
   const key = (input.key || '').toLowerCase();
   if (key === '+' || key === '=' || key === 'add') {
     event.preventDefault();
@@ -1854,12 +1857,20 @@ function runPageAdapters() {
   }
 }
 
+function resetGameContent() {
+  gameContentReady = false;
+  gameContentSize = null;
+  gameContentEpoch += 1;
+}
+
 function markGameContentReady() {
   if (gameContentReady) return;
+  const view = gameView;
+  const epoch = gameContentEpoch;
   gameContentReady = true;
   if (currentConfig.telemetry.consent === true) startAnonymousUsage(0);
   Promise.all([applyGamePresentation(), focusAllGameContainers()]).finally(() => {
-    if (!gameContentReady) return;
+    if (!gameContentReady || gameView !== view || gameContentEpoch !== epoch) return;
     gameViewLoadingMasked = false;
     syncGameViewVisibility();
   });
@@ -1884,7 +1895,14 @@ function focusGameContainer(frame) {
   if (!containerFocusSource || !frame || !isGameContainerFrame(frame.url)) {
     return Promise.resolve(null);
   }
-  return frame.executeJavaScript(containerFocusSource)
+  return frame.executeJavaScript(
+    `(() => {
+      const result = ${containerFocusSource}
+      const configured = window.__MT_AIGIS_CONTAINER_FOCUS__
+        ? window.__MT_AIGIS_CONTAINER_FOCUS__.configure(${JSON.stringify(gameContentSize)}) : null;
+      return { ...result, ...configured };
+    })()`
+  )
     .then((result) => {
       if (result && result.fresh) debugLog('game-container-focus-installed', result);
       return result;
@@ -1900,20 +1918,42 @@ function focusGameContainer(frame) {
 
 function installGameFrameAdapter(frame) {
   if (!frame || !isGameContentFrame(frame.url)) return Promise.resolve(null);
+  const view = gameView;
+  const epoch = gameContentEpoch;
+  const frameUrl = frame.url;
   return Promise.all([
     focusGameContainer(frame),
     frame.executeJavaScript(scrollSource)
     .then((installResult) => {
       return frame.executeJavaScript(
-        `window.__MT_AIGIS_SCROLL__ ? window.__MT_AIGIS_SCROLL__.setLevel(${getScrollLevel()}) : null`
+        `(async () => {
+          const adapter = window.__MT_AIGIS_SCROLL__;
+          if (!adapter) return null;
+          const ready = await adapter.whenReady();
+          const result = adapter.setLevel(${getScrollLevel()});
+          return ready ? result : { ...result, gameSize: null };
+        })()`
       ).then((result) => {
         if (installResult && installResult.fresh) debugLog('game-frame-adapter', result);
         return result;
       });
     }),
-  ]).catch((error) => {
+  ]).then(async (results) => {
+    if (gameView !== view || gameContentEpoch !== epoch) return results;
+    const size = results[1] && results[1].gameSize;
+    if (
+      isPlayableGameFrame(frameUrl) && size &&
+      Number.isFinite(size.width) && Number.isFinite(size.height) &&
+      size.width > 0 && size.height > 0
+    ) {
+      const changed = !gameContentSize || gameContentSize.width !== size.width || gameContentSize.height !== size.height;
+      gameContentSize = { width: size.width, height: size.height };
+      if (changed && gameContentReady) await Promise.all([applyGamePresentation(), focusAllGameContainers()]);
+    }
+    return results;
+  }).catch((error) => {
     debugLog('game-frame-adapter-error', {
-      url: frame.url,
+      url: frameUrl,
       error: error && error.message ? error.message : String(error),
     });
     return null;
@@ -1956,6 +1996,7 @@ function applyGamePresentation(options) {
       if (!window.__MT_GAME_FOCUS__) return null;
       return window.__MT_GAME_FOCUS__.configure(${JSON.stringify({
         contentReady: gameContentReady,
+        gameSize: gameContentSize,
         fill: gameFillColor(),
         ring: gameRingColor(),
         userScale: zoomFactor,
@@ -1977,6 +2018,7 @@ function injectGameFocus() {
       if (!window.__MT_GAME_FOCUS__) return null;
       return window.__MT_GAME_FOCUS__.configure(${JSON.stringify({
         contentReady: gameContentReady,
+        gameSize: gameContentSize,
         fill: gameFillColor(),
         ring: gameRingColor(),
         userScale: getZoomFactor(),
@@ -2177,14 +2219,21 @@ ipcMain.handle('sidebar:transition-start', async (event, state) => {
     gameView.webContents.isDestroyed() ||
     !gameViewAttached
   ) return false;
-  const targetSidebarWidth = state === 'collapse' ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH;
-  const size = mainWindow.getContentSize();
+  const window = mainWindow;
+  const view = gameView;
+  sidebarCollapsed = state === 'collapse';
+  const targetSidebarWidth = sidebarCollapsed ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH;
   sidebarTransitionActive = true;
-  await gameView.webContents.executeJavaScript(
+  if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
+  layoutPresentationTimer = null;
+  await view.webContents.executeJavaScript(
     'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.prepareViewportTransition() : null'
   ).catch(() => null);
+  if (mainWindow !== window || gameView !== view || window.isDestroyed() || view.webContents.isDestroyed()) return false;
+  if (!sidebarTransitionActive) return true;
   applyGameViewBounds(targetSidebarWidth);
-  await gameView.webContents.executeJavaScript(
+  const size = window.getContentSize();
+  await view.webContents.executeJavaScript(
     `window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.beginViewportTransition(${JSON.stringify({
       width: Math.max(1, size[0] - targetSidebarWidth),
       height: Math.max(1, size[1] - TOP_BAR_H - BOTTOM_BAR_H),

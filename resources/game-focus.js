@@ -6,13 +6,12 @@
   const ATTR_STYLE = 'data-mt-aigis-style';
   const ATTR_HIDDEN = 'data-mt-aigis-hidden';
   const LAUNCH_MASK_ID = 'mt-aigis-launch-mask';
-  const GAME_WIDTH = 960;
-  const GAME_HEIGHT = 640;
+  let gameWidth = 960;
+  let gameHeight = 640;
   let userScale = 1;
   let themeColor = '#101011';
-  let ringColor = 'rgba(255,255,255,0.16)';
   let gameContentReady = false;
-  let resizeTimer = null;
+  let resizeFrame = null;
   let transitionFrame = null;
   let transitionCompletion = null;
   let viewportTransitionActive = false;
@@ -55,10 +54,10 @@
   function viewportLayout(width, height) {
     const viewportWidth = Math.max(1, Number(width) || 1);
     const viewportHeight = Math.max(1, Number(height) || 1);
-    const fitScale = Math.min(viewportWidth / GAME_WIDTH, viewportHeight / GAME_HEIGHT);
+    const fitScale = Math.min(viewportWidth / gameWidth, viewportHeight / gameHeight);
     const scale = Math.max(0.1, fitScale * userScale);
-    const renderedWidth = GAME_WIDTH * scale;
-    const renderedHeight = GAME_HEIGHT * scale;
+    const renderedWidth = gameWidth * scale;
+    const renderedHeight = gameHeight * scale;
     return {
       viewportWidth,
       viewportHeight,
@@ -66,8 +65,9 @@
       scale,
       renderedWidth,
       renderedHeight,
-      frameLeft: Math.floor((viewportWidth - GAME_WIDTH) / 2),
+      frameLeft: Math.floor((viewportWidth - gameWidth) / 2),
       left: Math.floor((viewportWidth - renderedWidth) / 2),
+      top: Math.max(0, Math.floor((viewportHeight - renderedHeight) / 2)),
     };
   }
 
@@ -82,7 +82,6 @@
       window.innerWidth || document.documentElement.clientWidth,
       window.innerHeight || document.documentElement.clientHeight
     );
-    const top = 0;
 
     for (const element of [document.documentElement, document.body]) {
       setStyle(element, 'width', '100%');
@@ -126,18 +125,18 @@
     setStyle(frame, 'display', 'block');
     setStyle(frame, 'opacity', '1');
     setStyle(frame, 'position', 'fixed');
-    setStyle(frame, 'left', `calc(50% - ${GAME_WIDTH / 2}px)`);
-    setStyle(frame, 'top', `${top}px`);
-    setStyle(frame, 'width', `${GAME_WIDTH}px`);
-    setStyle(frame, 'height', `${GAME_HEIGHT}px`);
-    setStyle(frame, 'min-width', `${GAME_WIDTH}px`);
-    setStyle(frame, 'min-height', `${GAME_HEIGHT}px`);
+    setStyle(frame, 'left', `calc(50% - ${gameWidth / 2}px)`);
+    setStyle(frame, 'top', `${layout.top}px`);
+    setStyle(frame, 'width', `${gameWidth}px`);
+    setStyle(frame, 'height', `${gameHeight}px`);
+    setStyle(frame, 'min-width', `${gameWidth}px`);
+    setStyle(frame, 'min-height', `${gameHeight}px`);
     setStyle(frame, 'max-width', 'none');
     setStyle(frame, 'max-height', 'none');
     setStyle(frame, 'margin', '0');
     setStyle(frame, 'border', '0');
-    setStyle(frame, 'outline', `1px solid ${ringColor}`);
-    setStyle(frame, 'box-shadow', `0 0 0 1px ${ringColor}`);
+    setStyle(frame, 'outline', 'none');
+    setStyle(frame, 'box-shadow', 'none');
     setStyle(frame, 'background', themeColor);
     setStyle(frame, 'transform-origin', 'top center');
     setStyle(frame, 'transform', `scale(${layout.scale})`);
@@ -149,7 +148,7 @@
       scale: layout.scale,
       fitScale: layout.fitScale,
       userScale,
-      rect: { left: layout.left, top, width: layout.renderedWidth, height: layout.renderedHeight },
+      rect: { left: layout.left, top: layout.top, width: layout.renderedWidth, height: layout.renderedHeight },
     };
   }
 
@@ -157,6 +156,7 @@
     if (freezeCurrent && frame && transitionCompletion) {
       const computed = window.getComputedStyle(frame);
       setStyle(frame, 'left', computed.left);
+      setStyle(frame, 'top', computed.top);
       setStyle(frame, 'transform', computed.transform);
     }
     if (transitionFrame) {
@@ -209,10 +209,11 @@
     );
     viewportTransitionActive = true;
     cancelTransitionFrame();
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = null;
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = null;
     setStyle(frame, 'transition', 'none');
     setStyle(frame, 'left', `${layout.frameLeft}px`);
+    setStyle(frame, 'top', `${layout.top}px`);
     setStyle(frame, 'transform', `scale(${layout.scale})`);
     return { ok: true, scale: layout.scale, viewport: { width: layout.viewportWidth, height: layout.viewportHeight } };
   }
@@ -220,6 +221,7 @@
   function beginViewportTransition(payload) {
     const frame = findGameFrame();
     if (!frame) return { ok: false, reason: 'element-not-found' };
+    if (!viewportTransitionActive) return apply();
     const options = payload || {};
     const layout = viewportLayout(options.width, options.height);
     const duration = prefersReducedMotion()
@@ -231,13 +233,14 @@
     if (duration === 0) {
       setStyle(frame, 'transition', 'none');
       setStyle(frame, 'left', `${layout.frameLeft}px`);
+      setStyle(frame, 'top', `${layout.top}px`);
       setStyle(frame, 'transform', `scale(${layout.scale})`);
       return Promise.resolve({ ok: true, scale: layout.scale, animated: false });
     }
     setStyle(
       frame,
       'transition',
-      `left ${duration}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${duration}ms cubic-bezier(0.4, 0, 0.2, 1)`
+      `left ${duration}ms cubic-bezier(0.4, 0, 0.2, 1), top ${duration}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${duration}ms cubic-bezier(0.4, 0, 0.2, 1)`
     );
     const completion = waitForFrameTransition(
       frame,
@@ -250,6 +253,7 @@
       transitionFrame = requestAnimationFrame(() => {
         transitionFrame = null;
         setStyle(frame, 'left', `${layout.frameLeft}px`);
+        setStyle(frame, 'top', `${layout.top}px`);
         setStyle(frame, 'transform', `scale(${layout.scale})`);
       });
     });
@@ -258,7 +262,8 @@
 
   function animateUserScale(duration) {
     const frame = findGameFrame();
-    if (!frame || !gameContentReady || viewportTransitionActive) return apply();
+    if (viewportTransitionActive) return endViewportTransition();
+    if (!frame || !gameContentReady) return apply();
     const layout = viewportLayout(
       window.innerWidth || document.documentElement.clientWidth,
       window.innerHeight || document.documentElement.clientHeight
@@ -269,10 +274,11 @@
     cancelTransitionFrame(frame, true);
     if (animationDuration === 0) {
       setStyle(frame, 'transition', 'none');
+      setStyle(frame, 'top', `${layout.top}px`);
       setStyle(frame, 'transform', `scale(${layout.scale})`);
       return Promise.resolve({ ok: true, scale: layout.scale, animated: false });
     }
-    setStyle(frame, 'transition', `transform ${animationDuration}ms cubic-bezier(0.4, 0, 0.2, 1)`);
+    setStyle(frame, 'transition', `top ${animationDuration}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${animationDuration}ms cubic-bezier(0.4, 0, 0.2, 1)`);
     const completion = waitForFrameTransition(
       frame,
       'transform',
@@ -282,6 +288,7 @@
     );
     transitionFrame = requestAnimationFrame(() => {
       transitionFrame = null;
+      setStyle(frame, 'top', `${layout.top}px`);
       setStyle(frame, 'transform', `scale(${layout.scale})`);
     });
     return completion;
@@ -298,6 +305,8 @@
   function restore() {
     viewportTransitionActive = false;
     cancelTransitionFrame();
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = null;
     const launchMask = document.getElementById(LAUNCH_MASK_ID);
     if (launchMask) launchMask.remove();
     document.querySelectorAll(`[${ATTR_STYLE}]`).forEach((element) => {
@@ -309,12 +318,11 @@
   }
 
   function scheduleApply() {
-    if (viewportTransitionActive) return;
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      resizeTimer = null;
-      apply();
-    }, 40);
+    if (viewportTransitionActive || resizeFrame) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      if (!viewportTransitionActive) apply();
+    });
   }
 
   const observer = new MutationObserver(() => {
@@ -327,7 +335,15 @@
     }
   };
 
-  window.addEventListener('resize', scheduleApply, { passive: true });
+  window.addEventListener('resize', () => {
+    if (viewportTransitionActive) return;
+    if (transitionFrame || transitionCompletion) {
+      cancelTransitionFrame();
+      const frame = findGameFrame();
+      if (frame) setStyle(frame, 'transition', 'none');
+    }
+    scheduleApply();
+  }, { passive: true });
   if (document.body) startObserver();
   else document.addEventListener('DOMContentLoaded', startObserver, { once: true });
 
@@ -345,7 +361,17 @@
       gameContentReady = !!config.contentReady;
       if (!gameContentReady) startObserver();
       if (config.fill) themeColor = String(config.fill);
-      if (config.ring) ringColor = String(config.ring);
+      if (config.gameSize === null) {
+        gameWidth = 960;
+        gameHeight = 640;
+      } else if (
+        config.gameSize &&
+        Number.isFinite(config.gameSize.width) && Number.isFinite(config.gameSize.height) &&
+        config.gameSize.width > 0 && config.gameSize.height > 0
+      ) {
+        gameWidth = config.gameSize.width;
+        gameHeight = config.gameSize.height;
+      }
       const numeric = Number(config.userScale);
       userScale = Number.isFinite(numeric) ? Math.min(2.5, Math.max(0.7, numeric)) : 1;
       if (config.animateScale && Math.abs(previousUserScale - userScale) > 0.0001) {
@@ -365,7 +391,6 @@
     },
     setTheme(colors) {
       if (colors && colors.fill) themeColor = String(colors.fill);
-      if (colors && colors.ring) ringColor = String(colors.ring);
       return apply();
     },
     diagnose() {

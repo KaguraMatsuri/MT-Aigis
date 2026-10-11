@@ -27,6 +27,7 @@
   let resetTimer = null;
   let originalEvents = 0;
   let normalizedEvents = 0;
+  let readyPromise = null;
 
   function isAigisSurfaceDocument() {
     return (
@@ -36,9 +37,65 @@
     );
   }
 
+  function findGameCanvas() {
+    const moduleCanvas = typeof Module !== 'undefined' && Module && Module.canvas;
+    if (moduleCanvas && moduleCanvas.tagName === 'CANVAS' && moduleCanvas.isConnected !== false) return moduleCanvas;
+    const canvas = document.getElementById('canvas');
+    return canvas && canvas.tagName === 'CANVAS' && canvas.isConnected !== false ? canvas : null;
+  }
+
+  function gameCanvasSize() {
+    const canvas = findGameCanvas();
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) return null;
+    return { width: rect.width, height: rect.height };
+  }
+
+  function whenReady() {
+    if (readyPromise) return readyPromise;
+    const gameModule = typeof Module !== 'undefined' && Module;
+    if (!gameModule || (typeof ABORT !== 'undefined' && ABORT)) return Promise.resolve(false);
+    if (gameModule.calledRun) return Promise.resolve(true);
+
+    readyPromise = new Promise((resolve) => {
+      const previousAbort = gameModule.onAbort;
+      const callbacks = Array.isArray(gameModule.postRun)
+        ? gameModule.postRun
+        : typeof gameModule.postRun === 'function' ? [gameModule.postRun] : [];
+      let settled = false;
+      function finish(ready) {
+        if (settled) return;
+        settled = true;
+        const index = callbacks.indexOf(afterRun);
+        if (index >= 0) callbacks.splice(index, 1);
+        if (gameModule.onAbort === onAbort) gameModule.onAbort = previousAbort;
+        window.removeEventListener('pagehide', onPageHide);
+        resolve(ready);
+      }
+      function afterRun() {
+        // The engine runs postRun callbacks in reverse order; measure after all of them.
+        Promise.resolve().then(() => finish(true));
+      }
+      function onAbort(...args) {
+        try {
+          if (typeof previousAbort === 'function') return previousAbort.apply(this, args);
+        } finally {
+          finish(false);
+        }
+      }
+      function onPageHide() { finish(false); }
+      callbacks.push(afterRun);
+      gameModule.postRun = callbacks;
+      gameModule.onAbort = onAbort;
+      window.addEventListener('pagehide', onPageHide, { once: true });
+    });
+    return readyPromise;
+  }
+
   function alignAigisSurface() {
     if (!isAigisSurfaceDocument()) return;
-    const canvas = document.getElementById('canvas');
+    const canvas = findGameCanvas();
     if (canvas) {
       canvas.style.setProperty('display', 'block', 'important');
       canvas.style.setProperty('margin-left', '0', 'important');
@@ -160,6 +217,7 @@
 
   window.__MT_AIGIS_SCROLL__ = {
     applyBaseline: applyFrameBaseline,
+    whenReady,
     status() {
       return {
         installed: true,
@@ -169,6 +227,7 @@
         level,
         interval: PROFILES[level].interval,
         layout: frameLayout(),
+        gameSize: gameCanvasSize(),
       };
     },
     setLevel(value) {

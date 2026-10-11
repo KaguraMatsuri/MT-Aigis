@@ -6,8 +6,8 @@
   }
 
   const ATTR_STYLE = 'data-mt-aigis-container-style';
-  const GAME_WIDTH = 960;
-  const GAME_HEIGHT = 640;
+  let gameWidth = 960;
+  let gameHeight = 640;
   let scheduled = false;
 
   function saveStyle(element) {
@@ -60,8 +60,8 @@
 
     for (const element of [document.documentElement, document.body]) {
       if (!element) continue;
-      setStyle(element, 'width', `${GAME_WIDTH}px`);
-      setStyle(element, 'height', `${GAME_HEIGHT}px`);
+      setStyle(element, 'width', `${gameWidth}px`);
+      setStyle(element, 'height', `${gameHeight}px`);
       setStyle(element, 'margin', '0');
       setStyle(element, 'padding', '0');
       setStyle(element, 'overflow', 'hidden');
@@ -78,8 +78,8 @@
     setStyle(frame, 'opacity', '1');
     setStyle(frame, 'position', 'fixed');
     setStyle(frame, 'inset', '0');
-    setStyle(frame, 'width', `${GAME_WIDTH}px`);
-    setStyle(frame, 'height', `${GAME_HEIGHT}px`);
+    setStyle(frame, 'width', `${gameWidth}px`);
+    setStyle(frame, 'height', `${gameHeight}px`);
     setStyle(frame, 'margin', '0');
     setStyle(frame, 'border', '0');
     setStyle(frame, 'z-index', '2147483647');
@@ -101,6 +101,21 @@
   }
   document.addEventListener('DOMContentLoaded', apply, { once: true });
 
-  window.__MT_AIGIS_CONTAINER_FOCUS__ = { apply };
+  window.__MT_AIGIS_CONTAINER_FOCUS__ = {
+    apply,
+    configure(size) {
+      if (size === null) {
+        gameWidth = 960;
+        gameHeight = 640;
+      } else if (
+        size && Number.isFinite(size.width) && Number.isFinite(size.height) &&
+        size.width > 0 && size.height > 0
+      ) {
+        gameWidth = size.width;
+        gameHeight = size.height;
+      }
+      return apply();
+    },
+  };
   return { ...apply(), fresh: true };
 })();
