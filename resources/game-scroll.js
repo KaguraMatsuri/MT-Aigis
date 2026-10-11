@@ -23,8 +23,12 @@
   };
   let level = 3;
   let accumulated = 0;
-  let lastDispatch = 0;
+  let lastDispatch = -Infinity;
+  let lastDirection = 0;
   let resetTimer = null;
+  let dispatchTimer = null;
+  let pendingEvent = null;
+  let pendingDirection = 0;
   let originalEvents = 0;
   let normalizedEvents = 0;
   let readyPromise = null;
@@ -147,65 +151,98 @@
     if (resetTimer) clearTimeout(resetTimer);
     resetTimer = setTimeout(() => {
       accumulated = 0;
+      if (!pendingEvent) lastDirection = 0;
       resetTimer = null;
     }, IDLE_RESET);
   }
 
   function dispatchNormalized(event, direction) {
     const target = document.elementFromPoint(event.clientX, event.clientY) || event.target;
-    if (event.type === 'mousewheel') {
-      const normalized = new Event('mousewheel', {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-      });
-      Object.defineProperties(normalized, {
-        wheelDelta: { value: -direction * 120 },
-        wheelDeltaY: { value: -direction * 120 },
-        deltaY: { value: direction },
-      });
-      target.dispatchEvent(normalized);
-      return;
-    }
-
-    target.dispatchEvent(new WheelEvent('wheel', {
+    const normalized = new WheelEvent(event.type, {
       bubbles: true,
       cancelable: true,
       composed: true,
       clientX: event.clientX,
       clientY: event.clientY,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      button: event.button,
+      buttons: event.buttons,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
       deltaX: 0,
       deltaY: direction,
       deltaMode: WheelEvent.DOM_DELTA_LINE,
-    }));
+    });
+    if (event.type === 'mousewheel') {
+      Object.defineProperties(normalized, {
+        wheelDelta: { value: -direction * 120 },
+        wheelDeltaY: { value: -direction * 120 },
+        wheelDeltaX: { value: 0 },
+      });
+    }
+    target.dispatchEvent(normalized);
+  }
+
+  function resetInput() {
+    if (resetTimer) clearTimeout(resetTimer);
+    if (dispatchTimer) clearTimeout(dispatchTimer);
+    resetTimer = dispatchTimer = null;
+    accumulated = 0;
+    pendingEvent = null;
+    pendingDirection = lastDirection = 0;
+    lastDispatch = -Infinity;
+  }
+
+  function dispatchPending() {
+    dispatchTimer = null;
+    const event = pendingEvent;
+    const direction = pendingDirection;
+    pendingEvent = null;
+    pendingDirection = 0;
+    if (!event) return;
+    lastDispatch = performance.now();
+    normalizedEvents += 1;
+    dispatchNormalized(event, direction);
   }
 
   function normalizeScroll(event) {
     if (!event.isTrusted || event.ctrlKey || event.metaKey) return;
     originalEvents += 1;
-    const deltaY = Number.isFinite(event.deltaY)
+    const deltaMode = Number(event.deltaMode) || WheelEvent.DOM_DELTA_PIXEL;
+    const deltaY = Number.isFinite(event.deltaY) && (event.type !== 'mousewheel' || event.deltaY !== 0)
       ? event.deltaY
       : -(Number(event.wheelDeltaY || event.wheelDelta) || 0);
     const deltaX = Number(event.deltaX) || 0;
-    if (Math.abs(deltaY) < Math.abs(deltaX)) return;
+    if (
+      !Number.isFinite(deltaY) || deltaY === 0 ||
+      Math.abs(deltaY) < Math.abs(deltaX) ||
+      ![WheelEvent.DOM_DELTA_PIXEL, WheelEvent.DOM_DELTA_LINE, WheelEvent.DOM_DELTA_PAGE].includes(deltaMode)
+    ) return;
 
     event.preventDefault();
     event.stopImmediatePropagation();
-    accumulated += deltaY;
+    const direction = Math.sign(deltaY);
+    if (lastDirection && direction !== lastDirection) resetInput();
+    lastDirection = direction;
+    const profile = PROFILES[level];
+    // Pixel gestures use the sensitivity threshold; line/page input uses discrete units.
+    accumulated += deltaMode === WheelEvent.DOM_DELTA_PIXEL ? deltaY : deltaY * profile.threshold;
     resetSoon();
 
-    const now = performance.now();
-    const profile = PROFILES[level];
-    if (
-      Math.abs(accumulated) < profile.threshold ||
-      now - lastDispatch < profile.interval
-    ) return;
-
-    const direction = Math.sign(accumulated);
+    if (Math.abs(accumulated) < profile.threshold) return;
     accumulated = 0;
-    lastDispatch = now;
-    normalizedEvents += 1;
-    dispatchNormalized(event, direction);
+    pendingEvent = event;
+    pendingDirection = direction;
+    const wait = profile.interval - (performance.now() - lastDispatch);
+    if (wait <= 0) {
+      if (dispatchTimer) clearTimeout(dispatchTimer);
+      dispatchPending();
+    } else if (!dispatchTimer) {
+      dispatchTimer = setTimeout(dispatchPending, wait);
+    }
   }
 
   applyFrameBaseline();
@@ -214,6 +251,7 @@
   }
   document.addEventListener('wheel', normalizeScroll, { capture: true, passive: false });
   document.addEventListener('mousewheel', normalizeScroll, { capture: true, passive: false });
+  window.addEventListener('pagehide', resetInput);
 
   window.__MT_AIGIS_SCROLL__ = {
     applyBaseline: applyFrameBaseline,
@@ -233,7 +271,7 @@
     setLevel(value) {
       const numeric = Math.round(Number(value));
       level = Math.min(5, Math.max(1, Number.isFinite(numeric) ? numeric : 3));
-      accumulated = 0;
+      resetInput();
       return this.status();
     },
   };
