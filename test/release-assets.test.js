@@ -115,7 +115,7 @@ test('publishes only a complete release for the package-matched tag', () => {
   assert.match(releaseWorkflow, /"\$GITHUB_REF_NAME" != "\$expected_tag"/);
   assert.match(releaseWorkflow, /release_notes_path="\.github\/release-notes\/\$\{GITHUB_REF_NAME\}\.md"/);
   assert.match(releaseWorkflow, /Missing bilingual release notes/);
-  assert.match(releaseWorkflow, /for heading in "## 中文" "## English"/);
+  assert.match(releaseWorkflow, /for heading in "## 中文" "## 繁體中文" "## English"/);
   assert.match(releaseWorkflow, /- name: Test\n\s+run: npm test/);
   assert.match(releaseWorkflow, /-F "body=@\$\{RELEASE_NOTES_PATH\}"/);
   assert.match(releaseWorkflow, /-f "tag_name=\$\{GITHUB_REF_NAME\}"/);
