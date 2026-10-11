@@ -150,7 +150,7 @@
   </main>
   <script>
     const params = new URLSearchParams(location.search);
-    const lang = ['zh', 'en', 'ja'].includes(params.get('lang')) ? params.get('lang') : 'zh';
+    const lang = ['zh', 'zh-Hant', 'en', 'ja'].includes(params.get('lang')) ? params.get('lang') : 'zh';
     const copy = {
       zh: {
         title: '关于 MT-Aigis',
@@ -158,6 +158,14 @@
         version: '版本',
         author: '作者',
         contact: '联系方式',
+        qq: 'QQ',
+      },
+      'zh-Hant': {
+        title: '關於 MT-Aigis',
+        subtitle: '千年戰爭Aigis macOS Client',
+        version: '版本',
+        author: '作者',
+        contact: '聯絡方式',
         qq: 'QQ',
       },
       en: {

@@ -145,6 +145,29 @@ const APP_TEXT = {
     updateSeedShown: '已显示 Seed 更新通知',
     updateSeedDownload: '已验证 Seed 下载操作（开发版未下载安装）',
   },
+  'zh-Hant': {
+    aboutMenu: '關於 MT-Aigis',
+    quitMenu: '結束 MT-Aigis',
+    aboutTitle: '關於 MT-Aigis',
+    subtitle: '千年戰爭Aigis macOS Client',
+    contact: '聯絡方式',
+    qq: 'QQ',
+    copyright: `作者 ${AUTHOR_NAME}`,
+    ready: '準備就緒',
+    updateChecking: '檢查中',
+    updateAvailable: '發現新版本 {version}',
+    updateDownloadingPercent: '正在下載 {percent}%...',
+    updateCurrent: '未偵測到更新',
+    updateDeferred: '已暫緩本次更新',
+    updateOpening: '正在開啟安裝程式',
+    updateOpened: '安裝程式已開啟',
+    updateFailed: '更新失敗',
+    updatePromptKicker: '下個版本',
+    updatePromptDownload: '下載更新',
+    updatePromptLater: '稍後',
+    updateSeedShown: '已顯示 Seed 更新通知',
+    updateSeedDownload: '已驗證 Seed 下載操作（開發版未下載安裝）',
+  },
   en: {
     aboutMenu: 'About MT-Aigis',
     quitMenu: 'Quit MT-Aigis',
@@ -1176,16 +1199,28 @@ function normalizeScrollLevel(value) {
 }
 
 function normalizeLanguage(value) {
-  return ['auto', 'zh', 'en', 'ja'].includes(value) ? value : 'auto';
+  return ['auto', 'zh', 'zh-Hant', 'en', 'ja'].includes(value) ? value : 'auto';
+}
+
+function languageFromLocale(value) {
+  try {
+    const locale = new Intl.Locale(String(value || '').replace(/_/g, '-'));
+    if (locale.language === 'zh') {
+      return locale.maximize().script === 'Hant' ? 'zh-Hant' : 'zh';
+    }
+    if (['en', 'ja'].includes(locale.language)) return locale.language;
+  } catch {}
+  return '';
 }
 
 function effectiveLanguage() {
   const configured = normalizeLanguage(currentConfig.view && currentConfig.view.language);
   if (configured !== 'auto') return configured;
-  const locale = (app.getLocale() || '').toLowerCase();
-  if (locale.startsWith('ja')) return 'ja';
-  if (locale.startsWith('zh')) return 'zh';
-  return 'en';
+  for (const locale of app.getPreferredSystemLanguages()) {
+    const language = languageFromLocale(locale);
+    if (language) return language;
+  }
+  return languageFromLocale(app.getLocale()) || 'en';
 }
 
 function normalizeOverlayState(payload, previous) {
@@ -1198,7 +1233,7 @@ function normalizeOverlayState(payload, previous) {
   ).slice(0, limit);
   return {
     kind,
-    language: ['zh', 'en', 'ja'].includes(source.language) ? source.language : base.language || 'zh',
+    language: ['zh', 'zh-Hant', 'en', 'ja'].includes(source.language) ? source.language : base.language || 'zh',
     kicker: text('kicker', 80),
     title: text('title', 500),
     date: text('date', 80),
@@ -2358,7 +2393,7 @@ ipcMain.handle('autofill:suggestion', (event) => {
       fields: { username: false, password: false, totp: false },
     };
   }
-  return getAutofillSuggestion(vault.load());
+  return { ...getAutofillSuggestion(vault.load()), language: effectiveLanguage() };
 });
 
 ipcMain.handle('autofill:fill', (event, payload) => {

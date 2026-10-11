@@ -6,7 +6,16 @@ const {
   getAutofillValues,
   isTrustedAutofillUrl,
 } = require('../lib/autofill');
-const { isGameLaunchUrl, planTotpValues } = require('../resources/dmm-autofill-preload');
+const { isGameLaunchUrl, languageText, planTotpValues } = require('../resources/dmm-autofill-preload');
+
+test('uses the client language for autofill labels instead of the game page language', () => {
+  assert.equal(languageText('username', 'zh-Hant'), '填入帳號和密碼');
+  assert.equal(languageText('password', 'zh-Hant'), '填入帳號和密碼');
+  assert.equal(languageText('totp', 'zh-Hant'), '填入驗證碼');
+  assert.equal(languageText('username', 'zh'), '填充账号和密码');
+  assert.equal(languageText('username', 'en'), 'Fill login and password');
+  assert.equal(languageText('username', 'ja'), 'ログインIDとパスワードを入力');
+});
 
 test('masks both DMM and FANZA launch pages before their game frame is ready', () => {
   assert.equal(isGameLaunchUrl('https://play.games.dmm.com/game/aigisc'), true);

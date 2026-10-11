@@ -122,13 +122,15 @@ function planTotpValues(value, fieldCount, segmented) {
   return code.replace(/\D/g, '').slice(0, fieldCount).split('');
 }
 
-function languageText(kind) {
-  const language = String(navigator.language || '').toLowerCase();
+function languageText(kind, appLanguage) {
+  const language = String(appLanguage || navigator.language || '').toLowerCase();
   const labels = language.startsWith('ja')
     ? { username: 'ログインIDとパスワードを入力', password: 'ログインIDとパスワードを入力', totp: '認証コードを入力' }
-    : language.startsWith('zh')
-      ? { username: '填充账号和密码', password: '填充账号和密码', totp: '填充验证码' }
-      : { username: 'Fill login and password', password: 'Fill login and password', totp: 'Fill verification code' };
+    : language === 'zh-hant'
+      ? { username: '填入帳號和密碼', password: '填入帳號和密碼', totp: '填入驗證碼' }
+      : language.startsWith('zh')
+        ? { username: '填充账号和密码', password: '填充账号和密码', totp: '填充验证码' }
+        : { username: 'Fill login and password', password: 'Fill login and password', totp: 'Fill verification code' };
   return labels[kind] || labels.username;
 }
 
@@ -234,8 +236,9 @@ function installAutofill() {
         return hide();
       }
       button.querySelector('strong').textContent = suggestion.label || 'MT-Aigis';
-      button.querySelector('small').textContent = languageText(kind);
-      button.setAttribute('aria-label', languageText(kind));
+      const label = languageText(kind, suggestion.language);
+      button.querySelector('small').textContent = label;
+      button.setAttribute('aria-label', label);
       host.setAttribute('aria-hidden', 'false');
       button.classList.add('visible');
       place();
@@ -335,5 +338,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { isGameLaunchUrl, planTotpValues };
+  module.exports = { isGameLaunchUrl, languageText, planTotpValues };
 }

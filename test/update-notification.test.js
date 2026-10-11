@@ -49,9 +49,33 @@ test('selects the localized notes from a bilingual GitHub release', () => {
   ].join('\n');
 
   assert.equal(localizedReleaseNotes(body, 'zh'), '[功能] 中文更新内容.');
+  assert.equal(localizedReleaseNotes(body, 'zh-Hant'), '[功能] 中文更新内容.');
   assert.equal(localizedReleaseNotes(body, 'en'), '[Feature] English release notes.');
   assert.equal(localizedReleaseNotes(body, 'ja'), '[Feature] English release notes.');
   assert.equal(normalizeGithubRelease({ body }, '1.2.0', 'zh').notes, '[功能] 中文更新内容.');
+});
+
+test('selects Traditional Chinese release notes while keeping other language sections separate', () => {
+  const body = '## 中文\n\n简体说明\n\n## 繁體中文\n\n- 繁體說明\n\n## English\n\nEnglish notes';
+  assert.equal(localizedReleaseNotes(body, 'zh-Hant'), '• 繁體說明');
+  assert.equal(localizedReleaseNotes(body, 'zh'), '简体说明');
+  assert.equal(localizedReleaseNotes(body, 'en'), 'English notes');
+  assert.equal(localizedReleaseNotes(body, 'ja'), 'English notes');
+  assert.equal(normalizeGithubRelease({ body }, '1.2.0', 'zh-Hant').notes, '• 繁體說明');
+  assert.equal(localizedReleaseNotes('## English\nEnglish only', 'zh-Hant'), 'English only');
+  assert.equal(localizedReleaseNotes('## 繁體中文\n繁體說明', 'zh-Hant'), '繁體說明');
+  assert.equal(localizedReleaseNotes('Unsectioned notes', 'zh-Hant'), 'Unsectioned notes');
+});
+
+test('provides Traditional Chinese development seed content', () => {
+  const seed = getUpdateSeed('zh-Hant');
+  assert.equal(seed.seed, true);
+  assert.equal(seed.title, 'MT-Aigis 1.2.0 更新');
+  assert.equal(seed.notes.split('\n').length, 7);
+  assert.match(seed.notes, /視窗置頂/);
+  assert.match(seed.notes, /遊戲網域預先連線/);
+  assert.equal(seed.version, getUpdateSeed('zh').version);
+  assert.equal(seed.url, getUpdateSeed('zh').url);
 });
 
 test('provides localized development seed content', () => {
