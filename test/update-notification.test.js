@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   formatReleaseNotes,
   getUpdateSeed,
+  isValidUpdateVersion,
   localizedReleaseNotes,
   matchesSha512,
   normalizeGithubRelease,
@@ -112,4 +113,36 @@ test('resolves update assets against the stable GitHub Release URL', () => {
   );
   assert.equal(resolveUpdateAssetUrl('https://example.com/MT-Aigis.dmg'), '');
   assert.equal(resolveUpdateAssetUrl('http://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/MT-Aigis.dmg'), '');
+});
+
+test('locks relative and latest asset URLs to the selected release version', () => {
+  const asset = 'MT-Aigis-1.3.0-arm64.dmg';
+  const pinned = `https://github.com/KaguraMatsuri/MT-Aigis/releases/download/v1.3.0/${asset}`;
+  for (const url of [asset, `https://github.com/KaguraMatsuri/MT-Aigis/releases/latest/download/${asset}`, pinned]) {
+    assert.equal(resolveUpdateAssetUrl(url, '1.3.0'), pinned);
+  }
+});
+
+test('rejects mismatched release tags, nested files, credentials, and malformed pinned URLs', () => {
+  const prefix = 'https://github.com/KaguraMatsuri/MT-Aigis/releases/';
+  for (const url of [
+    `${prefix}download/v1.4.0/MT-Aigis-1.3.0-arm64.dmg`,
+    `${prefix}tag/v1.3.0`,
+    `${prefix}latest/download/nested/file.dmg`,
+    `${prefix}latest/download/nested%2Ffile.dmg`,
+    `${prefix}latest/download/nested%5Cfile.dmg`,
+    `${prefix}latest/download/file.dmg?query=1`,
+    `${prefix}latest/download/file.dmg#fragment`,
+    `${prefix}latest/download/%FF.dmg`,
+    `${prefix}latest/download/file.dmg`.replace('github.com', 'github.com:8443'),
+    `${prefix}latest/download/file.dmg`.replace('github.com', 'user:pass@github.com'),
+  ]) assert.equal(resolveUpdateAssetUrl(url, '1.3.0'), '', url);
+});
+
+test('accepts stable three-part update versions and rejects unsafe path components', () => {
+  for (const version of ['0.0.0', '1.3.0', '12.34.56']) assert.equal(isValidUpdateVersion(version), true);
+  for (const version of [null, 13, '', 'v1.3.0', '1.3', '1.3.0.1', '01.3.0', '1.3.0-beta.1', '1.3.0/../../../outside', '9007199254740992.0.0']) {
+    assert.equal(isValidUpdateVersion(version), false);
+    assert.equal(resolveUpdateAssetUrl('file.dmg', version), '');
+  }
 });

@@ -13,6 +13,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 
 const { SecureConfigStore, defaultConfig } = require('./lib/secure-config');
 const { PlainVault, emptyVault } = require('./lib/plain-vault');
@@ -29,6 +31,7 @@ const {
 } = require('./lib/navigation');
 const {
   getUpdateSeed,
+  isValidUpdateVersion,
   matchesSha512,
   normalizeGithubRelease,
   resolveUpdateAssetUrl,
@@ -520,9 +523,8 @@ function setUpdateState(status, message, extra = {}) {
   debugLog('update-state', updateState);
 }
 
-function formatUpdateError(error) {
-  const message = error && error.message ? error.message : String(error || '');
-  if (/releases\.atom|latest-mac\.yml|\b404\b|missing dmg|invalid manifest/i.test(message)) {
+function formatUpdateError(error, phase = 'checking') {
+  if (phase === 'checking' && error?.code === 'UPDATE_MANIFEST_NOT_FOUND') {
     return appText('updateCurrent');
   }
   return appText('updateFailed');
@@ -577,13 +579,16 @@ function compareVersions(a, b) {
 async function fetchTextWithMeta(url) {
   const response = await fetch(url, {
     redirect: 'follow',
+    signal: AbortSignal.timeout(8000),
     headers: {
       'user-agent': CHROME_UA,
       accept: 'text/plain, text/yaml, */*',
     },
   });
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const error = new Error(`HTTP ${response.status}`);
+    if (response.status === 404) error.code = 'UPDATE_MANIFEST_NOT_FOUND';
+    throw error;
   }
   return {
     text: await response.text(),
@@ -591,9 +596,10 @@ async function fetchTextWithMeta(url) {
   };
 }
 
-async function fetchBinary(url) {
+async function fetchBinary(url, signal) {
   const response = await fetch(url, {
     redirect: 'follow',
+    signal,
     headers: {
       'user-agent': CHROME_UA,
       accept: 'application/octet-stream,*/*',
@@ -614,17 +620,17 @@ function pickDmgAsset(manifest) {
   return manifest.files.find((item) => /\.dmg$/i.test(item.url || '')) || null;
 }
 
-async function readLatestManifest() {
-  const result = await fetchTextWithMeta(UPDATE_MANIFEST_URL);
-  const manifest = parseLatestManifest(result.text);
-  const dmg = pickDmgAsset(manifest);
-  if (!manifest.version) throw new Error('invalid manifest');
+function validateUpdateManifest(manifest) {
+  if (!manifest || !isValidUpdateVersion(manifest.version)) throw new Error('invalid manifest version');
+  const dmg = manifest.dmg || pickDmgAsset(manifest);
   if (!dmg) throw new Error('missing dmg');
-  const downloadUrl = resolveUpdateAssetUrl(dmg.url);
-  if (!downloadUrl) throw new Error('invalid dmg URL');
+  if (!Number.isSafeInteger(dmg.size) || dmg.size <= 0) throw new Error('invalid dmg size');
+  if (typeof dmg.sha512 !== 'string' || !matchesSha512(dmg.sha512, dmg.sha512) ||
+    Buffer.from(dmg.sha512, 'base64').toString('base64') !== dmg.sha512) throw new Error('invalid dmg checksum');
+  const downloadUrl = resolveUpdateAssetUrl(dmg.url || dmg.downloadUrl, manifest.version);
+  if (!downloadUrl || !/\.dmg$/i.test(downloadUrl)) throw new Error('invalid dmg URL');
   return {
     ...manifest,
-    manifestUrl: result.url,
     dmg: {
       ...dmg,
       downloadUrl,
@@ -632,9 +638,15 @@ async function readLatestManifest() {
   };
 }
 
+async function readLatestManifest() {
+  const result = await fetchTextWithMeta(UPDATE_MANIFEST_URL);
+  return validateUpdateManifest({ ...parseLatestManifest(result.text), manifestUrl: result.url });
+}
+
 async function readLatestGithubRelease(manifestVersion = '') {
   const response = await fetch(GITHUB_RELEASE_API_URL, {
     redirect: 'follow',
+    signal: AbortSignal.timeout(8000),
     headers: {
       'user-agent': CHROME_UA,
       accept: 'application/vnd.github+json',
@@ -695,38 +707,73 @@ async function showSeedUpdateNotification() {
 }
 
 async function downloadUpdateDmg(manifest) {
-  const version = manifest.version || 'latest';
+  const { version, dmg } = validateUpdateManifest(manifest);
   const updateDir = path.join(app.getPath('downloads') || path.join(os.homedir(), 'Downloads'), 'MT-Aigis Updates');
-  const finalPath = path.join(updateDir, `MT-Aigis-${version}.dmg`);
-  const tempPath = `${finalPath}.download`;
-  fs.mkdirSync(updateDir, { recursive: true });
-  const response = await fetchBinary(manifest.dmg.downloadUrl);
-  const total = Number.parseInt(response.headers.get('content-length') || '', 10) || manifest.dmg.size || 0;
-  const reader = response.body.getReader();
-  const stream = fs.createWriteStream(tempPath);
-  const digest = crypto.createHash('sha512');
-  let received = 0;
+  const controller = new AbortController();
+  let timeout = null;
+  let downloadDir = null;
+  let stream = null;
+  let verificationStream = null;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      received += value.length;
-      const chunk = Buffer.from(value);
-      digest.update(chunk);
-      stream.write(chunk);
-      const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
-      setUpdateState('downloading', appText('updateDownloadingPercent', { percent }), { version });
-    }
-    await new Promise((resolve, reject) => stream.end((error) => error ? reject(error) : resolve()));
-    if (!matchesSha512(digest.digest('base64'), manifest.dmg.sha512)) {
+    fs.mkdirSync(updateDir, { recursive: true });
+    downloadDir = fs.mkdtempSync(path.join(updateDir, `MT-Aigis-${version}-`));
+    const finalPath = path.join(downloadDir, `MT-Aigis-${version}.dmg`);
+    const tempPath = `${finalPath}.download`;
+    const relativePath = path.relative(updateDir, finalPath);
+    if (path.isAbsolute(relativePath) || relativePath.startsWith(`..${path.sep}`)) throw new Error('invalid update path');
+    timeout = setTimeout(() => controller.abort(), 8000);
+    const response = await fetchBinary(dmg.downloadUrl, controller.signal);
+    clearTimeout(timeout);
+    timeout = setTimeout(() => controller.abort(), 30000);
+    const total = Number.parseInt(response.headers.get('content-length') || '', 10) || dmg.size;
+    let received = 0;
+    let lastPercent = -1;
+    let lastProgressAt = 0;
+    stream = fs.createWriteStream(tempPath, { flags: 'wx', mode: 0o600 });
+    await pipeline(
+      Readable.fromWeb(response.body),
+      async function* (source) {
+        for await (const chunk of source) {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => controller.abort(), 30000);
+          received += chunk.length;
+          if (received > dmg.size) throw new Error('update size mismatch');
+          const percent = total > 0 ? Math.min(99, Math.round((received / total) * 100)) : 0;
+          const now = Date.now();
+          if (percent !== lastPercent && (lastPercent < 0 || now - lastProgressAt >= 100)) {
+            setUpdateState('downloading', appText('updateDownloadingPercent', { percent }), { version });
+            lastPercent = percent;
+            lastProgressAt = now;
+          }
+          yield chunk;
+        }
+      },
+      stream,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    timeout = null;
+    const stat = fs.lstatSync(tempPath);
+    if (!stat.isFile() || stat.size !== dmg.size || received !== dmg.size) throw new Error('update size mismatch');
+    const digest = crypto.createHash('sha512');
+    verificationStream = fs.createReadStream(tempPath);
+    for await (const chunk of verificationStream) digest.update(chunk);
+    if (!matchesSha512(digest.digest('base64'), dmg.sha512)) {
       throw new Error('update checksum mismatch');
     }
     fs.renameSync(tempPath, finalPath);
+    setUpdateState('downloading', appText('updateDownloadingPercent', { percent: 100 }), { version });
     return finalPath;
   } catch (error) {
-    try { stream.destroy(); } catch {}
-    try { fs.unlinkSync(tempPath); } catch {}
+    controller.abort();
+    if (stream) stream.destroy();
+    if (verificationStream) verificationStream.destroy();
+    if (downloadDir) {
+      try { fs.rmSync(downloadDir, { recursive: true, force: true }); } catch {}
+    }
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -735,9 +782,6 @@ function openInstallerAndQuit(installerPath) {
   return shell.openPath(installerPath).then((result) => {
     if (result) throw new Error(result);
     setUpdateState('opened', appText('updateOpened'));
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.close();
-    }
     setTimeout(() => app.quit(), 600);
     return updateState;
   });
@@ -788,7 +832,7 @@ function checkForUpdates() {
       return updateState;
     })
     .catch((error) => {
-      const message = formatUpdateError(error);
+      const message = formatUpdateError(error, updateState.status);
       const status = message === appText('updateCurrent') ? 'current' : 'error';
       setUpdateState(status, message, {
         version: '',
@@ -1344,11 +1388,18 @@ async function showOverlay(payload, signal) {
   if (!mainWindow || mainWindow.isDestroyed() || signal?.aborted) return false;
   const nextState = normalizeOverlayState(payload, null);
   if (!nextState) return false;
+  if (nextState.kind !== 'app-update' &&
+    (overlayState?.kind === 'app-update' || (gameViewFallbackHidden && updatePrompt))) return false;
   if (nextState.kind !== 'clicker-consent' && clickerWarningAbort) clickerWarningAbort.abort();
   stopGameClicker();
   const ready = await ensureOverlayView();
   if (!ready || !mainWindow || mainWindow.isDestroyed() ||
     !overlayView || overlayView.webContents.isDestroyed() || signal?.aborted) return false;
+  if (nextState.kind !== 'app-update' &&
+    (overlayState?.kind === 'app-update' || (gameViewFallbackHidden && updatePrompt))) return false;
+  if (overlayState && overlayState.kind !== nextState.kind) {
+    sendToRenderer('native-overlay:closed', { kind: overlayState.kind });
+  }
   overlayState = nextState;
   mainWindow.contentView.addChildView(overlayView);
   applyOverlayBounds();
@@ -1362,7 +1413,7 @@ async function showOverlay(payload, signal) {
 function updateOverlay(payload) {
   if (!overlayView || overlayView.webContents.isDestroyed() || !overlayState) return false;
   const nextState = normalizeOverlayState(payload, overlayState);
-  if (!nextState) return false;
+  if (!nextState || nextState.kind !== overlayState.kind) return false;
   overlayState = nextState;
   overlayView.webContents.send('native-overlay:state', overlayState);
   return true;
@@ -1371,6 +1422,7 @@ function updateOverlay(payload) {
 function closeOverlay() {
   if (!mainWindow || mainWindow.isDestroyed() || !overlayView) return false;
   const kind = overlayState && overlayState.kind;
+  if (kind === 'app-update' && updatePrompt) return resolveUpdatePrompt('later');
   overlayView.setVisible(false);
   overlayState = null;
   sendToRenderer('native-overlay:closed', { kind });
@@ -1901,7 +1953,9 @@ async function getNetworkStatus() {
     error: '',
   };
   try {
-    const res = await fetchThroughGameSession('https://api.ipify.org?format=json');
+    const res = await fetchThroughGameSession('https://api.ipify.org?format=json', {
+      signal: AbortSignal.timeout(8000),
+    });
     const data = await res.json();
     snapshot.ip = data.ip || '';
   } catch (error) {
@@ -1909,7 +1963,9 @@ async function getNetworkStatus() {
   }
   if (snapshot.ip) {
     try {
-      const geoRes = await fetchThroughGameSession(`https://ipwho.is/${encodeURIComponent(snapshot.ip)}`);
+      const geoRes = await fetchThroughGameSession(`https://ipwho.is/${encodeURIComponent(snapshot.ip)}`, {
+        signal: AbortSignal.timeout(8000),
+      });
       const geo = await geoRes.json();
       if (geo && geo.success) {
         snapshot.country = geo.country || '';
