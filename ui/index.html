@@ -191,6 +191,19 @@
         </section>
 
         <section class="card">
+          <div class="settings-row">
+            <label id="clicker-setting-label" for="clicker-enabled">跳过剧情[B]</label>
+            <input id="clicker-enabled" type="checkbox" checked>
+          </div>
+          <div class="scroll-control clicker-cps-control">
+            <div><label for="clicker-cps">CPS</label><output id="clicker-cps-value" for="clicker-cps">5</output></div>
+            <input id="clicker-cps" type="range" min="1" max="10" step="1" value="5">
+            <label for="clicker-key">绑定的按键</label>
+            <input id="clicker-key" type="text" value="B" readonly autocomplete="off" spellcheck="false">
+          </div>
+        </section>
+
+        <section class="card">
           <div class="card-head">
             <div>
               <p class="card-kicker" data-i18n="telemetryKicker">匿名统计</p>
@@ -262,9 +275,12 @@
     </div>
   </aside>
 
-  <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
-    <span id="mute-label" data-i18n="unmuted">静音游戏</span>
-  </button>
+  <div class="game-actions">
+    <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
+      <span id="mute-label" data-i18n="unmuted">静音游戏</span>
+    </button>
+    <button id="btn-story-skip" class="mute-toggle" type="button" title="跳过剧情[B]" aria-keyshortcuts="B" hidden disabled>跳过剧情[B]</button>
+  </div>
 
   <dialog id="telemetry-consent-dialog" class="update-dialog" aria-labelledby="telemetry-consent-title" aria-describedby="telemetry-consent-copy">
     <div class="update-dialog-head">

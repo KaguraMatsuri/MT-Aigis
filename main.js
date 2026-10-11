@@ -121,6 +121,7 @@ const GAME_AUXILIARY_FRAME_RULES = [
   'https://drc1bk94f7rq8.cloudfront.net/00/html/main_all.htm',
 ];
 const CACHE_STATS_TTL_MS = 15_000;
+const CLICKER_WARNING = '剧情跳过功能实现方式为在游戏中进行的随机散布自动点击, 可能会有一定的风险, 请谨慎考虑后使用. 此功能可在设置页彻底关闭.';
 const APP_TEXT = {
   zh: {
     aboutMenu: '关于 MT-Aigis',
@@ -131,6 +132,8 @@ const APP_TEXT = {
     qq: 'QQ',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '准备就绪',
+    clickerAllow: '允许',
+    clickerDeny: '不允许',
     updateChecking: '检查中',
     updateAvailable: '发现新版本 {version}',
     updateDownloadingPercent: '正在下载 {percent}%...',
@@ -154,6 +157,8 @@ const APP_TEXT = {
     qq: 'QQ',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '準備就緒',
+    clickerAllow: '允許',
+    clickerDeny: '不允許',
     updateChecking: '檢查中',
     updateAvailable: '發現新版本 {version}',
     updateDownloadingPercent: '正在下載 {percent}%...',
@@ -177,6 +182,8 @@ const APP_TEXT = {
     qq: 'QQ',
     copyright: `Author ${AUTHOR_NAME}`,
     ready: 'Ready',
+    clickerAllow: 'Allow',
+    clickerDeny: 'Don’t Allow',
     updateChecking: 'Checking',
     updateAvailable: 'Version {version} is available',
     updateDownloadingPercent: 'Downloading {percent}%...',
@@ -200,6 +207,8 @@ const APP_TEXT = {
     qq: 'QQ',
     copyright: `作者 ${AUTHOR_NAME}`,
     ready: '準備完了',
+    clickerAllow: '許可する',
+    clickerDeny: '許可しない',
     updateChecking: '確認中',
     updateAvailable: '新しいバージョン {version} があります',
     updateDownloadingPercent: 'ダウンロード中 {percent}%...',
@@ -260,6 +269,15 @@ let aboutWindow = null;
 let focusSource = '';
 let scrollSource = '';
 let containerFocusSource = '';
+let gameClickerSource = '';
+const clickerFrames = new Map();
+let clickerPointerHeld = false;
+let clickerKeyHeld = false;
+let clickerKeyActive = false;
+let clickerKeySequence = 0;
+let clickerWarningTask = null;
+let clickerWarningAbort = null;
+let clickerWarningRespond = null;
 let navigationMode = 'boot';
 let sessionFlushTimer = null;
 let gameContentReady = false;
@@ -858,6 +876,8 @@ function createWindow() {
     mainWindow.focus();
   });
   mainWindow.on('resize', updateLayout);
+  mainWindow.on('blur', () => stopGameClicker(true));
+  mainWindow.on('focus', () => syncGameClicker());
   for (const eventName of [
     'resized',
     'maximize',
@@ -919,6 +939,7 @@ function createGameView() {
   focusSource = loadResource('game-focus.js');
   scrollSource = loadResource('game-scroll.js');
   containerFocusSource = loadResource('game-container-focus.js');
+  gameClickerSource = loadResource('game-clicker.js');
 
   mainWindow.contentView.addChildView(gameView);
   gameViewAttached = true;
@@ -964,7 +985,13 @@ function createGameView() {
     } catch (_) {}
   });
 
-  gameView.webContents.on('did-start-navigation', (_, url, isInPlace, isMainFrame) => {
+  gameView.webContents.on('did-start-navigation', (details, url, isInPlace, isMainFrame) => {
+    if (!details.isMainFrame && !details.isSameDocument &&
+      (isPlayableGameFrame(details.url) || clickerFrames.has(details.frame))) {
+      stopGameClicker(true);
+      clickerFrames.clear();
+      if (clickerWarningAbort) clickerWarningAbort.abort();
+    }
     if (!isMainFrame || isInPlace) return;
     resetGameContent();
     gameViewLoadingMasked = isGameUrl(url);
@@ -1023,7 +1050,9 @@ function createGameView() {
     .catch(() => {});
 
   attachNavigationHandlers();
+  gameView.webContents.on('blur', () => releaseGameClickerKey());
   gameView.webContents.on('before-input-event', (event, input) => {
+    handleGameClickerKey(input);
     forwardNativeEditShortcut(gameView.webContents, input);
     handleBeforeInputEvent(event, input);
   });
@@ -1165,6 +1194,8 @@ function setTelemetryConsent(allowed) {
 function normalizeConfig(rawConfig) {
   const base = defaultConfig();
   const source = rawConfig || {};
+  const clicker = source.clicker || {};
+  const cps = Number(clicker.cps);
   const cleanSource = { ...source };
   delete cleanSource.launchUrl;
   delete cleanSource.storage;
@@ -1191,6 +1222,12 @@ function normalizeConfig(rawConfig) {
         ? source.session.cookies
         : [],
     },
+    clicker: {
+      enabled: clicker.enabled !== false,
+      cps: Number.isFinite(cps) ? Math.max(1, Math.min(10, Math.round(cps))) : 5,
+      keyCode: isClickerKeyCode(clicker.keyCode) ? clicker.keyCode : base.clicker.keyCode,
+      acknowledged: clicker.acknowledged === true,
+    },
     telemetry: {
       ...base.telemetry,
       ...(source.telemetry || {}),
@@ -1200,6 +1237,10 @@ function normalizeConfig(rawConfig) {
         : '',
     },
   };
+}
+
+function isClickerKeyCode(code) {
+  return typeof code === 'string' && /^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2]))$/.test(code);
 }
 
 function normalizeZoomFactor(value) {
@@ -1242,7 +1283,7 @@ function effectiveLanguage() {
 function normalizeOverlayState(payload, previous) {
   const source = payload || {};
   const kind = source.kind || (previous && previous.kind) || '';
-  if (!['game-news', 'app-update'].includes(kind)) return null;
+  if (!['game-news', 'app-update', 'clicker-consent'].includes(kind)) return null;
   const base = previous && previous.kind === kind ? previous : {};
   const text = (key, limit) => String(
     Object.prototype.hasOwnProperty.call(source, key) ? source[key] : base[key] || ''
@@ -1299,18 +1340,22 @@ function ensureOverlayView() {
   return overlayReady;
 }
 
-async function showOverlay(payload) {
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+async function showOverlay(payload, signal) {
+  if (!mainWindow || mainWindow.isDestroyed() || signal?.aborted) return false;
   const nextState = normalizeOverlayState(payload, null);
   if (!nextState) return false;
+  if (nextState.kind !== 'clicker-consent' && clickerWarningAbort) clickerWarningAbort.abort();
+  stopGameClicker();
   const ready = await ensureOverlayView();
-  if (!ready || !overlayView || overlayView.webContents.isDestroyed()) return false;
+  if (!ready || !mainWindow || mainWindow.isDestroyed() ||
+    !overlayView || overlayView.webContents.isDestroyed() || signal?.aborted) return false;
   overlayState = nextState;
   mainWindow.contentView.addChildView(overlayView);
   applyOverlayBounds();
   overlayView.setVisible(true);
   overlayView.webContents.send('native-overlay:state', overlayState);
   overlayView.webContents.focus();
+  await syncGameClicker();
   return true;
 }
 
@@ -1330,6 +1375,7 @@ function closeOverlay() {
   overlayState = null;
   sendToRenderer('native-overlay:closed', { kind });
   mainWindow.webContents.focus();
+  if (kind !== 'clicker-consent') syncGameClicker();
   return true;
 }
 
@@ -1349,6 +1395,7 @@ function resolveUpdatePrompt(action) {
 
 function updateLayout(debounce) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  stopGameClicker();
   if (overlayState) applyOverlayBounds();
   if (!gameView || !gameViewAttached) return;
   applyGameViewBounds();
@@ -1639,6 +1686,7 @@ function getZoomFactor() {
 }
 
 function setZoomFactor(value) {
+  stopGameClicker();
   const zoomFactor = normalizeZoomFactor(value);
   currentConfig.view.zoomFactor = zoomFactor;
   store.save(currentConfig);
@@ -1674,6 +1722,7 @@ function getPublicConfig() {
       effectiveLanguage: effectiveLanguage(),
     },
     storage: store.getStatus(),
+    clicker: getPublicClickerState(),
     telemetry: getPublicTelemetryState(),
     app: {
       version: APP_DISPLAY_VERSION,
@@ -1873,6 +1922,214 @@ async function getNetworkStatus() {
   return snapshot;
 }
 
+function getPublicClickerState() {
+  const available = clickerAvailable();
+  return { ...currentConfig.clicker, available,
+    keyboardHeld: !!(clickerKeyActive && available && currentConfig.clicker.enabled && currentConfig.clicker.acknowledged) };
+}
+
+function clickerAvailable() {
+  return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() &&
+    gameView && !gameView.webContents.isDestroyed() && gameContentReady &&
+    !gameViewLoadingMasked && !gameViewFallbackHidden && !overlayState &&
+    [...clickerFrames.values()].some(validClickerFrame));
+}
+
+function validClickerFrame(entry) {
+  return clickerFrames.get(entry.frame) === entry && gameView === entry.view &&
+    gameContentEpoch === entry.epoch && !entry.frame.isDestroyed() && isPlayableGameFrame(entry.frame.url);
+}
+
+function clickerInputCode(input) {
+  if (input.code) return input.code;
+  const key = String(input.key || '').toUpperCase();
+  if (/^[A-Z]$/.test(key)) return 'Key' + key;
+  if (/^[0-9]$/.test(key)) return 'Digit' + key;
+  return key;
+}
+
+function releaseGameClickerKey() {
+  if (!clickerKeyHeld) return;
+  clickerKeyHeld = clickerKeyActive = false;
+  clickerKeySequence++;
+  for (const entry of clickerFrames.values()) {
+    if (!validClickerFrame(entry)) continue;
+    entry.frame.executeJavaScript('window.__MT_AIGIS_CLICKER__?.setKeyboardHeld(false)').catch(() => {});
+  }
+  sendToRenderer('clicker:state', getPublicClickerState());
+}
+
+function watchClickerKeyboardRelease(entry, sequence) {
+  if (!entry || !validClickerFrame(entry)) return;
+  entry.frame.executeJavaScript('window.__MT_AIGIS_CLICKER__.waitForKeyboardRelease()').then((result) => {
+    if ((result?.released || result?.disposed) && entry.view === gameView && entry.epoch === gameContentEpoch &&
+      sequence === clickerKeySequence && clickerKeyHeld) releaseGameClickerKey();
+  }).catch((error) => {
+    if (entry.view !== gameView || entry.epoch !== gameContentEpoch ||
+      sequence !== clickerKeySequence || !clickerKeyHeld) return;
+    const reportError = validClickerFrame(entry);
+    releaseGameClickerKey();
+    if (reportError) sendToRenderer('browser:error', error.message || String(error));
+  });
+}
+
+function handleGameClickerKey(input) {
+  if (!input || clickerInputCode(input) !== currentConfig.clicker.keyCode) return;
+  if (input.type === 'keyUp') { releaseGameClickerKey(); return; }
+  if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing || input.control ||
+    input.meta || input.alt || clickerKeyHeld || !currentConfig.clicker.enabled || !clickerAvailable()) return;
+  const view = gameView, window = mainWindow, epoch = gameContentEpoch;
+  const frame = view.webContents.focusedFrame || view.webContents.mainFrame;
+  if (!frame || frame.isDestroyed()) return;
+  const frameUrl = frame.url;
+  if (!isPlayableGameFrame(frameUrl) && !isGameContainerFrame(frameUrl) &&
+    !(frame === view.webContents.mainFrame && isGameUrl(frameUrl))) return;
+  clickerKeyHeld = true;
+  const sequence = ++clickerKeySequence;
+  if (isPlayableGameFrame(frameUrl)) watchClickerKeyboardRelease(clickerFrames.get(frame), sequence);
+  frame.executeJavaScript(`(() => {
+    const element = document.activeElement;
+    return !!element && (element.isContentEditable ||
+      /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName) ||
+      !!element.closest('[contenteditable="true"]'));
+  })()`).then(async (editing) => {
+    if (sequence !== clickerKeySequence || !clickerKeyHeld) return;
+    if (editing || mainWindow !== window || gameView !== view || gameContentEpoch !== epoch ||
+      view.webContents.isDestroyed() || frame.isDestroyed() || frame.url !== frameUrl ||
+      (view.webContents.focusedFrame || view.webContents.mainFrame) !== frame ||
+      !currentConfig.clicker.enabled || !clickerAvailable()) {
+      releaseGameClickerKey();
+      return;
+    }
+    if (!currentConfig.clicker.acknowledged) { await confirmClickerUse(); return; }
+    clickerKeyActive = true;
+    // A focused game frame already receives the trusted DOM keyboard events.
+    if (!isPlayableGameFrame(frameUrl)) {
+      await Promise.all([...clickerFrames.values()].filter(validClickerFrame).map(entry => {
+        watchClickerKeyboardRelease(entry, sequence);
+        return entry.frame.executeJavaScript('window.__MT_AIGIS_CLICKER__?.setKeyboardHeld(true)').catch(() => {});
+      }));
+    }
+    sendToRenderer('clicker:state', getPublicClickerState());
+  }).catch((error) => {
+    if (sequence !== clickerKeySequence) return;
+    releaseGameClickerKey();
+    sendToRenderer('browser:error', error.message || String(error));
+  });
+}
+
+function stopGameClicker(force = false) {
+  if (force !== true && !clickerPointerHeld && !clickerKeyHeld) return;
+  const hadHold = clickerPointerHeld || clickerKeyHeld;
+  clickerPointerHeld = clickerKeyHeld = clickerKeyActive = false;
+  clickerKeySequence++;
+  for (const entry of clickerFrames.values()) {
+    if (!validClickerFrame(entry)) continue;
+    entry.frame.executeJavaScript('window.__MT_AIGIS_CLICKER__?.stop()').catch(() => {});
+  }
+  if (hadHold) sendToRenderer('clicker:state', { ...getPublicClickerState(), resetHolds: true });
+}
+
+async function syncGameClicker() {
+  const options = { ...currentConfig.clicker, active: clickerAvailable() };
+  await Promise.all([...clickerFrames.values()].filter(validClickerFrame).map(async (entry) => {
+    try {
+      await entry.frame.executeJavaScript(`window.__MT_AIGIS_CLICKER__?.configure(${JSON.stringify(options)})`);
+      if (validClickerFrame(entry)) watchClickerFirstUse(entry);
+    } catch {}
+  }));
+  sendToRenderer('clicker:state', getPublicClickerState());
+}
+
+function watchClickerFirstUse(entry) {
+  if (entry.watching || !validClickerFrame(entry) ||
+    !currentConfig.clicker.enabled || currentConfig.clicker.acknowledged) return;
+  entry.watching = true;
+  let disposed = false;
+  entry.frame.executeJavaScript(
+    'window.__MT_AIGIS_CLICKER__ ? window.__MT_AIGIS_CLICKER__.waitForFirstUse() : { disposed: true }'
+  ).then(async (result) => {
+    disposed = !result || result.disposed;
+    if (result?.requested && validClickerFrame(entry)) {
+      try {
+        await confirmClickerUse();
+      } catch (error) {
+        if (validClickerFrame(entry)) sendToRenderer('browser:error', error.message || String(error));
+      }
+    }
+  }).catch((error) => {
+    disposed = true;
+    if (validClickerFrame(entry)) sendToRenderer('browser:error', error.message || String(error));
+  }).finally(() => {
+    entry.watching = false;
+    if (!disposed && validClickerFrame(entry)) watchClickerFirstUse(entry);
+  });
+}
+
+async function installGameClicker(frame) {
+  if (!gameClickerSource || frame.isDestroyed() || !isPlayableGameFrame(frame.url)) return;
+  const view = gameView, epoch = gameContentEpoch;
+  const installed = await frame.executeJavaScript(gameClickerSource);
+  if (!installed?.installed || gameView !== view || gameContentEpoch !== epoch || frame.isDestroyed()) return;
+  let entry = clickerFrames.get(frame);
+  if (!entry || installed.fresh) {
+    entry = { frame, view, epoch, url: frame.url, watching: false };
+    clickerFrames.set(frame, entry);
+  }
+  await frame.executeJavaScript(`window.__MT_AIGIS_CLICKER__.configure(${JSON.stringify({
+    ...currentConfig.clicker, active: clickerAvailable(),
+  })})`);
+  if (validClickerFrame(entry)) watchClickerFirstUse(entry);
+}
+
+function confirmClickerUse() {
+  if (clickerWarningTask) return clickerWarningTask;
+  if (!currentConfig.clicker.enabled || currentConfig.clicker.acknowledged || !clickerAvailable()) {
+    return Promise.resolve(getPublicClickerState());
+  }
+  const window = mainWindow, view = gameView, epoch = gameContentEpoch;
+  const controller = new AbortController();
+  clickerWarningAbort = controller;
+  stopGameClicker(true);
+  const task = (async () => {
+    let cancel;
+    const response = new Promise((resolve) => {
+      clickerWarningRespond = resolve;
+      cancel = () => resolve('cancel');
+      controller.signal.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+      const opened = await showOverlay({
+        kind: 'clicker-consent', language: effectiveLanguage(),
+        title: '跳过剧情[' + currentConfig.clicker.keyCode.replace(/^(Key|Digit)/, '') + ']', body: CLICKER_WARNING,
+        closeLabel: appText('clickerDeny'), visitLabel: appText('clickerAllow'),
+      }, controller.signal);
+      if (opened) {
+        const action = await response;
+        if (!controller.signal.aborted && mainWindow === window && gameView === view &&
+          gameContentEpoch === epoch && (action === 'allow' || action === 'deny')) {
+          if (action === 'allow') currentConfig.clicker.acknowledged = true;
+          else currentConfig.clicker.enabled = false;
+          store.save(currentConfig);
+        }
+      }
+    } finally {
+      controller.signal.removeEventListener('abort', cancel);
+      if (clickerWarningAbort === controller) {
+        clickerWarningRespond = null;
+        if (overlayState?.kind === 'clicker-consent') closeOverlay();
+      }
+      await syncGameClicker();
+    }
+    return getPublicClickerState();
+  })();
+  clickerWarningTask = task;
+  return task.finally(() => {
+    if (clickerWarningTask === task) clickerWarningTask = null;
+    if (clickerWarningAbort === controller) clickerWarningAbort = null;
+  });
+}
+
 function sendToRenderer(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
@@ -1887,6 +2144,9 @@ function runPageAdapters() {
 }
 
 function resetGameContent() {
+  stopGameClicker(true);
+  clickerFrames.clear();
+  if (clickerWarningAbort) clickerWarningAbort.abort();
   gameContentReady = false;
   gameContentSize = null;
   gameContentEpoch += 1;
@@ -1902,11 +2162,13 @@ function markGameContentReady() {
     if (!gameContentReady || gameView !== view || gameContentEpoch !== epoch) return;
     gameViewLoadingMasked = false;
     syncGameViewVisibility();
+    syncGameClicker();
   });
 }
 
 function syncGameViewVisibility() {
   if (!gameView || gameView.webContents.isDestroyed()) return false;
+  if (gameViewLoadingMasked || gameViewFallbackHidden) stopGameClicker();
   gameView.setVisible(!gameViewLoadingMasked && !gameViewFallbackHidden);
   return true;
 }
@@ -1979,6 +2241,7 @@ function installGameFrameAdapter(frame) {
       gameContentSize = { width: size.width, height: size.height };
       if (changed && gameContentReady) await Promise.all([applyGamePresentation(), focusAllGameContainers()]);
     }
+    if (isPlayableGameFrame(frameUrl) && size) await installGameClicker(frame);
     return results;
   }).catch((error) => {
     debugLog('game-frame-adapter-error', {
@@ -2194,7 +2457,7 @@ ipcMain.handle('native-overlay:open', (event, payload) => {
   if (
     !mainWindow ||
     mainWindow.isDestroyed() ||
-    event.sender.id !== mainWindow.webContents.id
+    event.sender.id !== mainWindow.webContents.id || payload?.kind === 'clicker-consent'
   ) return false;
   return showOverlay(payload);
 });
@@ -2203,7 +2466,8 @@ ipcMain.handle('native-overlay:update', (event, payload) => {
   if (
     !mainWindow ||
     mainWindow.isDestroyed() ||
-    event.sender.id !== mainWindow.webContents.id
+    event.sender.id !== mainWindow.webContents.id ||
+    payload?.kind === 'clicker-consent' || overlayState?.kind === 'clicker-consent'
   ) return false;
   return updateOverlay(payload);
 });
@@ -2212,7 +2476,7 @@ ipcMain.handle('native-overlay:close', (event) => {
   if (
     !overlayView ||
     overlayView.webContents.isDestroyed() ||
-    event.sender.id !== overlayView.webContents.id
+    event.sender.id !== overlayView.webContents.id || overlayState?.kind === 'clicker-consent'
   ) return false;
   return closeOverlay();
 });
@@ -2239,6 +2503,16 @@ ipcMain.handle('native-overlay:update-respond', (event, action) => {
   return resolveUpdatePrompt(action);
 });
 
+ipcMain.handle('native-overlay:clicker-respond', (event, action) => {
+  if (!overlayView || overlayView.webContents.isDestroyed() ||
+    event.sender.id !== overlayView.webContents.id || overlayState?.kind !== 'clicker-consent' ||
+    !clickerWarningRespond || (action !== 'allow' && action !== 'deny')) return false;
+  const respond = clickerWarningRespond;
+  clickerWarningRespond = null;
+  respond(action);
+  return true;
+});
+
 ipcMain.handle('sidebar:transition-start', async (event, state) => {
   if (
     !mainWindow ||
@@ -2248,6 +2522,7 @@ ipcMain.handle('sidebar:transition-start', async (event, state) => {
     gameView.webContents.isDestroyed() ||
     !gameViewAttached
   ) return false;
+  stopGameClicker();
   const window = mainWindow;
   const view = gameView;
   sidebarCollapsed = state === 'collapse';
@@ -2278,6 +2553,43 @@ ipcMain.handle('scroll:set-level', (_, level) => {
 
 ipcMain.handle('language:set', (_, language) => {
   return setLanguage(language);
+});
+
+ipcMain.handle('clicker:settings', async (event, settings) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id ||
+    !settings || typeof settings !== 'object' || Array.isArray(settings) ||
+    (Object.hasOwn(settings, 'enabled') && typeof settings.enabled !== 'boolean') ||
+    (Object.hasOwn(settings, 'cps') && !Number.isFinite(settings.cps)) ||
+    (Object.hasOwn(settings, 'keyCode') && !isClickerKeyCode(settings.keyCode))) return null;
+  const previousKey = currentConfig.clicker.keyCode;
+  currentConfig.clicker = normalizeConfig({
+    ...currentConfig, clicker: { ...currentConfig.clicker, enabled: settings.enabled ?? currentConfig.clicker.enabled,
+      cps: settings.cps ?? currentConfig.clicker.cps,
+      keyCode: settings.keyCode ?? currentConfig.clicker.keyCode },
+  }).clicker;
+  if (!currentConfig.clicker.enabled || currentConfig.clicker.keyCode !== previousKey) stopGameClicker(true);
+  try {
+    store.save(currentConfig);
+  } finally {
+    await syncGameClicker();
+  }
+  return getPublicClickerState();
+});
+
+ipcMain.handle('clicker:hold', async (event, held) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id ||
+    typeof held !== 'boolean') return null;
+  if (!held) {
+    clickerPointerHeld = false;
+  } else {
+    if (!currentConfig.clicker.enabled || !clickerAvailable()) return getPublicClickerState();
+    if (!currentConfig.clicker.acknowledged) return confirmClickerUse();
+    clickerPointerHeld = true;
+  }
+  await Promise.all([...clickerFrames.values()].filter(validClickerFrame).map(entry =>
+    entry.frame.executeJavaScript(`window.__MT_AIGIS_CLICKER__?.setPointerHeld(${clickerPointerHeld})`).catch(() => {})
+  ));
+  return getPublicClickerState();
 });
 
 ipcMain.handle('telemetry:consent', (event, allowed) => {
@@ -2330,6 +2642,7 @@ ipcMain.handle('config:save', async (_, nextConfig) => {
     view: currentConfig.view,
     session: currentConfig.session,
     telemetry: currentConfig.telemetry,
+    clicker: currentConfig.clicker,
   });
   store.save(currentConfig);
   await applyProxySettings();
@@ -2493,6 +2806,7 @@ ipcMain.handle('clipboard:write', (_, value) => {
 });
 
 ipcMain.handle('sidebar:toggle', async (_, state) => {
+  stopGameClicker();
   if (!mainWindow || !gameView) return;
   sidebarCollapsed = state === 'collapse';
   currentConfig.view.sidebarCollapsed = sidebarCollapsed;
@@ -2609,6 +2923,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  stopGameClicker(true);
   stopAnonymousUsageForWindow();
   if (quitAfterFlush || !gameView || gameView.webContents.isDestroyed()) return;
   event.preventDefault();

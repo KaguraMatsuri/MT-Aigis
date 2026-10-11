@@ -578,7 +578,8 @@ h2 {
   font-size: 10px;
 }
 
-#scroll-level {
+#scroll-level,
+#clicker-cps {
   min-height: 18px;
   padding: 0;
   border: 0;
@@ -1045,11 +1046,30 @@ select {
   color: var(--muted);
 }
 
-.mute-toggle {
+.game-actions {
   position: fixed;
   z-index: 30;
   left: 18px;
   bottom: 12px;
+  display: flex;
+  gap: 12px;
+}
+
+.game-actions [hidden] { display: none; }
+
+.clicker-cps-control { margin: 12px 0 0; }
+.clicker-cps-control output { color: var(--muted); font-size: 10px; }
+#clicker-enabled {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+  justify-self: end;
+  accent-color: var(--accent);
+}
+
+.mute-toggle {
   min-width: 116px;
   height: 38px;
   padding: 0 18px;
@@ -1078,7 +1098,8 @@ select {
     linear-gradient(180deg, color-mix(in srgb, var(--surface-hover) 84%, transparent), color-mix(in srgb, var(--window) 96%, transparent));
 }
 
-.mute-toggle:active {
+.mute-toggle:active,
+#btn-story-skip.clicker-held {
   transform: translateY(1px) scale(0.992);
   border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
   background:

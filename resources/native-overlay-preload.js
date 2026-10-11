@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld('mtAigisOverlay', {
   close: () => ipcRenderer.invoke('native-overlay:close'),
   openExternal: (url) => ipcRenderer.invoke('native-overlay:open-external', url),
   respondUpdate: (action) => ipcRenderer.invoke('native-overlay:update-respond', action),
+  respondClicker: (action) => ipcRenderer.invoke('native-overlay:clicker-respond', action),
 });

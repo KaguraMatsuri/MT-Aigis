@@ -18,6 +18,11 @@
   var telemetryConsentRequestPending = false;
   var alwaysOnTopEnabled = false;
   var alwaysOnTopRequestPending = false;
+  var clickerState = null;
+  var clickerPointerHeld = false;
+  var clickerUiKeyHeld = false;
+  var clickerCpsEditing = false;
+  var clickerSettingsRevision = 0;
   var scrollLabels = {
     zh: ['极缓', '缓慢', '标准', '灵敏', '快速'],
     'zh-Hant': ['極慢', '緩慢', '標準', '靈敏', '快速'],
@@ -867,6 +872,170 @@
     });
   }
 
+  function renderClicker(state, applyCps) {
+    if (!state) return;
+    var newlyAcknowledged = clickerState && !clickerState.acknowledged && state.acknowledged;
+    var bindingChanged = clickerState && clickerState.keyCode !== state.keyCode;
+    clickerState = state;
+    var button = byId('btn-story-skip');
+    button.hidden = !state.enabled;
+    button.disabled = !state.available;
+    var keyLabel = (state.keyCode || 'KeyB').replace(/^(Key|Digit)/, '');
+    button.textContent = button.title = '跳过剧情[' + keyLabel + ']';
+    button.setAttribute('aria-keyshortcuts', keyLabel);
+    byId('clicker-setting-label').textContent = button.textContent;
+    byId('clicker-key').value = keyLabel;
+    byId('clicker-enabled').checked = !!state.enabled;
+    if (!clickerCpsEditing || applyCps) {
+      clickerCpsEditing = false;
+      byId('clicker-cps').value = String(state.cps);
+      byId('clicker-cps-value').textContent = String(state.cps);
+    }
+    if (newlyAcknowledged || bindingChanged || state.resetHolds || !state.enabled || !state.available) releaseClickerInputs();
+    renderClickerHold();
+  }
+
+  function renderClickerHold() {
+    var held = clickerPointerHeld || clickerUiKeyHeld || clickerState && clickerState.keyboardHeld;
+    byId('btn-story-skip').classList.toggle('clicker-held', !!(held && clickerState &&
+      clickerState.enabled && clickerState.available && clickerState.acknowledged));
+  }
+
+  function sendClickerHold() {
+    renderClickerHold();
+    return api.invoke('clicker:hold', clickerPointerHeld || clickerUiKeyHeld).then(renderClicker).catch(function (error) {
+      releaseClickerInputs();
+      setRuntime(errorText(error), true);
+    });
+  }
+
+  function releaseClickerInputs() {
+    var held = clickerPointerHeld || clickerUiKeyHeld;
+    clickerPointerHeld = clickerUiKeyHeld = false;
+    renderClickerHold();
+    if (held) api.invoke('clicker:hold', false).catch(function (error) { setRuntime(errorText(error), true); });
+  }
+
+  function saveClickerSettings(settings) {
+    var revision = ++clickerSettingsRevision;
+    return api.invoke('clicker:settings', settings).then(function (state) {
+      if (revision === clickerSettingsRevision) renderClicker(state, true);
+    }).catch(function (error) {
+      setSettingsMessage(errorText(error), true);
+      return api.invoke('config:get').then(function (config) {
+        if (revision === clickerSettingsRevision) renderClicker(config.clicker, true);
+      });
+    });
+  }
+
+  function isClickerKey(event) {
+    return clickerInputCode(event) === (clickerState && clickerState.keyCode || 'KeyB');
+  }
+
+  function clickerInputCode(event) {
+    if (event.code) return event.code;
+    var key = String(event.key || '').toUpperCase();
+    if (/^[A-Z]$/.test(key)) return 'Key' + key;
+    if (/^[0-9]$/.test(key)) return 'Digit' + key;
+    return key;
+  }
+
+  function clickerEditable(element) {
+    return element && (element.isContentEditable || (element.closest && element.closest('input, textarea, select, [contenteditable="true"]')));
+  }
+
+  function installClickerControls() {
+    var button = byId('btn-story-skip');
+    button.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0 || button.disabled || button.hidden) return;
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      clickerPointerHeld = true;
+      sendClickerHold();
+    });
+    function releasePointer() {
+      if (!clickerPointerHeld) return;
+      clickerPointerHeld = false;
+      sendClickerHold();
+    }
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (name) {
+      button.addEventListener(name, releasePointer);
+    });
+    function releaseAllClickerInputs() {
+      if (clickerState) clickerState.keyboardHeld = false;
+      releaseClickerInputs();
+    }
+    window.addEventListener('blur', releaseAllClickerInputs);
+    window.addEventListener('pagehide', releaseAllClickerInputs);
+    document.addEventListener('focusin', function (event) {
+      if (clickerEditable(event.target)) releaseAllClickerInputs();
+    });
+    window.addEventListener('keydown', function (event) {
+      if (!isClickerKey(event) || !event.isTrusted || event.isComposing || event.ctrlKey || event.metaKey || event.altKey ||
+        !clickerState || !clickerState.enabled || !clickerState.available ||
+        clickerEditable(event.target) || clickerEditable(document.activeElement)) return;
+      event.preventDefault();
+      if (event.repeat || clickerUiKeyHeld) return;
+      clickerUiKeyHeld = true;
+      sendClickerHold();
+    });
+    window.addEventListener('keyup', function (event) {
+      if (!isClickerKey(event) || !clickerUiKeyHeld) return;
+      event.preventDefault();
+      clickerUiKeyHeld = false;
+      sendClickerHold();
+    });
+    byId('clicker-enabled').addEventListener('change', function () {
+      if (!this.checked) {
+        releaseClickerInputs();
+        button.hidden = true;
+        if (clickerState) clickerState.enabled = false;
+        renderClickerHold();
+      }
+      saveClickerSettings({ enabled: this.checked });
+    });
+    byId('clicker-cps').addEventListener('input', function () {
+      clickerCpsEditing = true;
+      byId('clicker-cps-value').textContent = this.value;
+    });
+    byId('clicker-cps').addEventListener('change', function () {
+      saveClickerSettings({ cps: Number(this.value) });
+    });
+    var keyInput = byId('clicker-key'), capturingKey = false;
+    function cancelKeyCapture() {
+      capturingKey = false;
+      keyInput.value = (clickerState && clickerState.keyCode || 'KeyB').replace(/^(Key|Digit)/, '');
+    }
+    keyInput.addEventListener('focus', function () {
+      releaseClickerInputs();
+      capturingKey = true;
+      this.select();
+    });
+    keyInput.addEventListener('blur', cancelKeyCapture);
+    window.addEventListener('blur', function () {
+      cancelKeyCapture();
+      keyInput.blur();
+    });
+    keyInput.addEventListener('keydown', function (event) {
+      if (!capturingKey || !event.isTrusted) return;
+      if (event.key === 'Escape' || event.code === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelKeyCapture();
+        this.blur();
+        return;
+      }
+      if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+      var code = clickerInputCode(event);
+      if (!/^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2]))$/.test(code)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      capturingKey = false;
+      saveClickerSettings({ keyCode: code });
+      this.blur();
+    });
+  }
+
   function updateTotpProgress() {
     var currentCode = (byId('secret-twofa').textContent || '').trim();
     if (!currentCode || currentCode === '-') {
@@ -1212,8 +1381,11 @@
   api.on('telemetry:state', renderTelemetryState);
   api.on('update:state', updateUpdateState);
   api.on('update:prompt', showUpdatePrompt);
+  api.on('clicker:state', function (state) { renderClicker(state); });
+  installClickerControls();
 
   api.invoke('config:get').then(function (config) {
+    renderClicker(config.clicker, true);
     applySidebarState(!!(config.view && config.view.sidebarCollapsed), false);
     updateScrollControl(config.view && config.view.scrollLevel || 5);
     byId('language-select').value = config.view && config.view.language || 'auto';

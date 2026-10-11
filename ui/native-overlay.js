@@ -11,29 +11,39 @@
     if (dialog.open) dialog.close();
     currentUrl = '';
     if (currentKind === 'app-update') api.respondUpdate('later');
+    else if (currentKind === 'clicker-consent') api.respondClicker('deny');
     else api.close();
     currentKind = '';
   }
 
   api.onState(function (state) {
-    if (!state || ['game-news', 'app-update'].indexOf(state.kind) < 0) return;
+    if (!state || ['game-news', 'app-update', 'clicker-consent'].indexOf(state.kind) < 0) return;
     currentKind = state.kind;
     document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : state.language || 'en';
     document.querySelector('.update-dialog-mark').textContent = state.kind === 'app-update' ? '↑' : 'i';
     document.getElementById('native-overlay-kicker').textContent = state.kicker || '';
+    document.getElementById('native-overlay-kicker').hidden = state.kind === 'clicker-consent';
     document.getElementById('native-overlay-title').textContent = state.title || 'MT-Aigis';
     document.getElementById('native-overlay-date').textContent = state.date || '';
+    document.getElementById('native-overlay-date').hidden = state.kind === 'clicker-consent';
     document.getElementById('native-overlay-body').textContent = state.body || '';
     document.getElementById('native-overlay-close').textContent = state.closeLabel || 'Close';
     document.getElementById('native-overlay-open').textContent = state.visitLabel || 'Open';
     currentUrl = state.url || '';
-    document.getElementById('native-overlay-open').disabled = state.kind !== 'app-update' && !currentUrl;
+    document.getElementById('native-overlay-open').disabled =
+      state.kind !== 'app-update' && state.kind !== 'clicker-consent' && !currentUrl;
     if (!dialog.open) dialog.showModal();
     setTimeout(function () { document.getElementById('native-overlay-close').focus(); }, 0);
   });
 
   document.getElementById('native-overlay-close').addEventListener('click', closeOverlay);
   document.getElementById('native-overlay-open').addEventListener('click', function () {
+    if (currentKind === 'clicker-consent') {
+      if (dialog.open) dialog.close();
+      api.respondClicker('allow');
+      currentKind = '';
+      return;
+    }
     if (currentKind === 'app-update') {
       if (dialog.open) dialog.close();
       api.respondUpdate('install');

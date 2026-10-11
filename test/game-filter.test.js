@@ -52,6 +52,8 @@ function native() {
     URL, gameView: view, gameContentReady: false, gameContentSize: null, gameContentEpoch: 0,
     gameViewLoadingMasked: true, gameViewFallbackHidden: false,
     currentConfig: { telemetry: { consent: false } },
+    clickerFrames: new Map(), clickerWarningAbort: null,
+    stopGameClicker() {}, syncGameClicker() {}, installGameClicker() {},
     containerFocusSource: containerSource, scrollSource: 'fixture-scroll-source',
     getScrollLevel() { return 5; }, debugLog() {}, startAnonymousUsage() { assert.fail(); },
     applyGamePresentation() { presentations.push(context.gameContentSize); return Promise.resolve(); },

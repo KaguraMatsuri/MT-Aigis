@@ -98,6 +98,7 @@ function native(h, options = {}) {
     layoutPresentationTimer: null, overlayState: null, overlayView: null, overlayReady: null,
     gameContentReady: true, gameContentSize: options.gameSize || null, gameContentEpoch: 0, updatePrompt: null,
     currentConfig: { view: { sidebarCollapsed: !!options.collapsed } },
+    clickerFrames: new Map(), clickerWarningAbort: null, stopGameClicker() {},
     mainWindow: {
       isDestroyed() { return destroyed; }, getContentSize() { return size; }, webContents: { id: 1 },
       on(_event, callback) { closed = callback; }, close() { closed(); destroyed = true; },
@@ -136,7 +137,7 @@ function keyboard() {
   let saves = 0;
   const context = vm.createContext({
     ZOOM_STEP: 0.1, ZOOM_MIN: 0.7, ZOOM_MAX: 2.5,
-    currentConfig: { view: { zoomFactor: 1 } }, store: { save() { saves++; } }, applyGamePresentation() {},
+    currentConfig: { view: { zoomFactor: 1 } }, store: { save() { saves++; } }, applyGamePresentation() {}, stopGameClicker() {},
   });
   vm.runInContext([
     section(main, 'function normalizeZoomFactor(', 'function normalizeScrollLevel('),
