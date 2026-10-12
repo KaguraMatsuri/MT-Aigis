@@ -194,20 +194,29 @@ test('release metadata rate limiting leaves manifest based detection available',
 });
 
 test('shows the approved missing-notes message after GitHub rate limiting and still downloads the update', async t => {
-  const h = fixture(t), c = h.context, fetch = c.fetch;
-  c.AUTHOR_NAME = 'fixture';
-  c.effectiveLanguage = () => 'zh';
-  vm.runInContext(section(main, 'const APP_TEXT =', 'app.commandLine.appendSwitch') +
-    section(main, 'function appText(', 'function setUpdateState('), c);
-  c.fetch = url => url === releaseUrl ? Promise.resolve({ ok: false, status: 403 }) : fetch(url);
-  const pending = c.checkForUpdates(); await turn();
-  assert.equal(c.overlayState.body, '无法显示更新内容, 可能 Github 调用额度已用完. 但更新仍然可以继续.');
-  assert.equal(c.overlayState.visitLabel, '下载更新');
-  assert.equal(c.updateState.version, '1.3.0');
-  c.resolveUpdatePrompt('install');
-  assert.equal((await pending).status, 'opened');
-  assert.equal(h.counts.download, 1);
-  assert.equal(c.updateDownloadTask, null);
+  const messages = {
+    zh: '无法显示更新内容, 可能 Github 调用额度已用完. 但更新仍然可以继续.',
+    'zh-Hant': '無法顯示更新內容, 可能 Github 呼叫額度已用完. 但更新仍然可以繼續.',
+    en: 'Unable to display update details. The Github API rate limit may have been reached. You can still continue the update.',
+    ja: '更新内容を表示できません. Github API の呼び出し上限に達した可能性があります. 更新は引き続き実行できます.',
+  };
+  for (const [language, message] of Object.entries(messages)) {
+    const h = fixture(t), c = h.context, fetch = c.fetch;
+    c.AUTHOR_NAME = 'fixture';
+    c.effectiveLanguage = () => language;
+    vm.runInContext(section(main, 'const APP_TEXT =', 'app.commandLine.appendSwitch') +
+      section(main, 'function appText(', 'function setUpdateState('), c);
+    c.fetch = url => url === releaseUrl ? Promise.resolve({ ok: false, status: 403 }) : fetch(url);
+    const pending = c.checkForUpdates(); await turn();
+    assert.equal(c.overlayState.body, message);
+    assert.equal(c.overlayState.language, language);
+    assert.equal(c.overlayState.visitLabel, c.appText('updatePromptDownload'));
+    assert.equal(c.updateState.version, '1.3.0');
+    c.resolveUpdatePrompt('install');
+    assert.equal((await pending).status, 'opened');
+    assert.equal(h.counts.download, 1);
+    assert.equal(c.updateDownloadTask, null);
+  }
 });
 
 test('uses the missing-notes message for whitespace and preserves valid release content', async t => {

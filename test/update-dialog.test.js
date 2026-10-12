@@ -55,4 +55,14 @@ test('shows the approved empty-notes message in the fallback dialog without disa
   }
   context.showUpdatePrompt({ notes: '• [功能] fixture release notes.' });
   assert.equal(node('update-dialog-notes').textContent, '• [功能] fixture release notes.');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const dictionaries = vm.createContext({ AUTHOR_NAME: 'fixture' });
+  vm.runInContext(main.slice(main.indexOf('const APP_TEXT ='), main.indexOf('app.commandLine.appendSwitch')) +
+    '\nglobalThis.translations = APP_TEXT;', dictionaries);
+  for (const language of ['zh-Hant', 'en', 'ja']) {
+    context.currentLanguage = language;
+    context.showUpdatePrompt({ notes: '' });
+    assert.equal(node('update-dialog-notes').textContent, dictionaries.translations[language].updateNotesEmpty);
+    assert.equal(node('btn-update-download').disabled, false);
+  }
 });
