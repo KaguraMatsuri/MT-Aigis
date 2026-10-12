@@ -137,7 +137,7 @@
       nextUpdate: '下个版本',
       downloadUpdate: '下载更新',
       updateLater: '稍后',
-      updateNotesEmpty: '本次更新未提供更新说明。',
+      updateNotesEmpty: '无法显示更新内容, 可能 Github 调用额度已用完. 但更新仍然可以继续.',
       newsKicker: '游戏动态',
       gameNews: '更新公告',
       newsLoading: '正在获取官方公告...',
@@ -1169,7 +1169,7 @@
     var dialog = byId('update-dialog');
     byId('update-dialog-title').textContent = release.title || t('nextUpdate');
     byId('update-dialog-version').textContent = release.displayVersion || release.version || '';
-    byId('update-dialog-notes').textContent = release.notes || t('updateNotesEmpty');
+    byId('update-dialog-notes').textContent = String(release.notes || '').trim() ? release.notes : t('updateNotesEmpty');
     if (!dialog.open) dialog.showModal();
     setTimeout(function () { byId('btn-update-download').focus(); }, 0);
   }

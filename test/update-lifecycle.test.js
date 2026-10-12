@@ -193,6 +193,32 @@ test('release metadata rate limiting leaves manifest based detection available',
   assert.equal((await c.checkForUpdates()).status, 'deferred'); assert.equal(c.updateDownloadTask, null);
 });
 
+test('shows the approved missing-notes message after GitHub rate limiting and still downloads the update', async t => {
+  const h = fixture(t), c = h.context, fetch = c.fetch;
+  c.AUTHOR_NAME = 'fixture';
+  c.effectiveLanguage = () => 'zh';
+  vm.runInContext(section(main, 'const APP_TEXT =', 'app.commandLine.appendSwitch') +
+    section(main, 'function appText(', 'function setUpdateState('), c);
+  c.fetch = url => url === releaseUrl ? Promise.resolve({ ok: false, status: 403 }) : fetch(url);
+  const pending = c.checkForUpdates(); await turn();
+  assert.equal(c.overlayState.body, '无法显示更新内容, 可能 Github 调用额度已用完. 但更新仍然可以继续.');
+  assert.equal(c.overlayState.visitLabel, '下载更新');
+  assert.equal(c.updateState.version, '1.3.0');
+  c.resolveUpdatePrompt('install');
+  assert.equal((await pending).status, 'opened');
+  assert.equal(h.counts.download, 1);
+  assert.equal(c.updateDownloadTask, null);
+});
+
+test('uses the missing-notes message for whitespace and preserves valid release content', async t => {
+  for (const notes of ['', '  \n\t', '• [功能] fixture release notes.']) {
+    const h = fixture(t), c = h.context;
+    const pending = c.showUpdateNotification({ version: '1.3.0', notes }); await turn();
+    assert.equal(c.overlayState.body, notes.trim() ? notes : 'updateNotesEmpty');
+    c.resolveUpdatePrompt('later'); assert.equal(await pending, 'later');
+  }
+});
+
 test('blocks other overlays during the renderer fallback and restores visibility on later', async t => {
   const h = fixture(t), c = h.context; c.ensureOverlayView = async () => false;
   const pending = c.checkForUpdates(); await turn();
