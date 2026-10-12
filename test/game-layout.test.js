@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
 const focus = fs.readFileSync(path.join(root, 'resources', 'game-focus.js'), 'utf8');
+const sidebar = fs.readFileSync(path.join(root, 'ui', 'sidebar.js'), 'utf8');
 
 function section(source, start, end) {
   const first = source.indexOf(start), last = source.indexOf(end, first);
@@ -21,6 +22,7 @@ function clock() {
     schedule(callback, delay = 0) { const id = ++nextId; tasks.set(id, { callback, at: now + delay }); return id; },
     cancel(id) { tasks.delete(id); },
     get pending() { return tasks.size; },
+    get now() { return now; },
     advance(milliseconds) {
       const end = now + milliseconds;
       for (;;) {
@@ -64,6 +66,7 @@ function game(width = 960, height = 660, options = {}) {
   window.top = window;
   const context = vm.createContext({
     window,
+    Date: { now: () => time.now },
     document: {
       body, documentElement: html,
       getElementById(id) { return id === 'game_frame' && framePresent ? frame : null; },
@@ -92,8 +95,17 @@ function game(width = 960, height = 660, options = {}) {
 function native(h, options = {}) {
   const handlers = new Map(), bounds = [], scripts = [];
   let size = [1320, 760], closed, destroyed = false, saves = 0;
+  const execute = async code => {
+    scripts.push(code);
+    if (options.beforeExecute) await options.beforeExecute(code);
+    const result = vm.runInContext(code, h.context);
+    if (options.prepareGate && code.includes('.prepareViewportTransition(')) await options.prepareGate;
+    return result;
+  };
+  const frame = { isDestroyed() { return destroyed; }, executeJavaScript: execute };
   const context = vm.createContext({
     SIDEBAR_OPEN_WIDTH: 360, SIDEBAR_CLOSED_WIDTH: 44, TOP_BAR_H: 48, BOTTOM_BAR_H: 52,
+    SIDEBAR_TRANSITION_TIMEOUT: 600, sidebarTransition: null, sidebarTransitionSequence: 0,
     sidebarCollapsed: !!options.collapsed, sidebarTransitionActive: false, gameViewAttached: true,
     layoutPresentationTimer: null, overlayState: null, overlayView: null, overlayReady: null,
     gameContentReady: true, gameContentSize: options.gameSize || null, gameContentEpoch: 0, updatePrompt: null,
@@ -107,18 +119,14 @@ function native(h, options = {}) {
       setBounds(value) { bounds.push(value); h.resize(value.width, value.height); },
       webContents: {
         isDestroyed() { return destroyed; }, getURL() { return 'https://play.games.dmm.com/game/aigisc'; }, close() {},
-        async executeJavaScript(code) {
-          scripts.push(code);
-          const result = vm.runInContext(code, h.context);
-          if (options.prepareGate && code.includes('.prepareViewportTransition(')) await options.prepareGate;
-          return result;
-        },
+        mainFrame: frame, executeJavaScript: execute,
       },
     },
     setImmediate: callback => h.time.schedule(callback, 0), setTimeout: h.time.schedule, clearTimeout: h.time.cancel,
+    Date: { now: () => h.time.now },
     getZoomFactor() { return 1; }, gameFillColor() { return '#101011'; }, gameRingColor() { return 'rgba(255,255,255,0.16)'; },
     isGameUrl() { return true; }, debugLog() {}, sendToRenderer() {},
-    store: { save() { saves++; } },
+    store: { save() { saves++; if (options.saveError) throw options.saveError; } },
     stopAnonymousUsageForWindow() {}, resolveTelemetryConsentWaiters() {},
     ipcMain: { handle(name, callback) { handlers.set(name, callback); } },
   });
@@ -145,6 +153,56 @@ function keyboard() {
     section(main, 'function handleBeforeInputEvent(', 'function forwardNativeEditShortcut('),
   ].join('\n'), context);
   return { context, get saves() { return saves; } };
+}
+
+function sidebarUI(h, n, options = {}) {
+  const nodes = new Map(), calls = [], errors = [];
+  function node(id) {
+    if (!nodes.has(id)) {
+      const classes = new Set();
+      if (options.collapsed && (id === 'sidebar' || id === 'body')) {
+        classes.add(id === 'sidebar' ? 'collapsed' : 'sidebar-collapsed');
+      }
+      const listeners = new Map();
+      nodes.set(id, {
+        classList: {
+          contains(key) { return classes.has(key); },
+          toggle(key, value) { if (value) classes.add(key); else classes.delete(key); },
+        },
+        setAttribute(key, value) { this[key] = value; },
+        addEventListener(type, callback) { listeners.set(type, callback); },
+        removeEventListener(type) { listeners.delete(type); },
+        get listenerCount() { return listeners.size; },
+      });
+    }
+    return nodes.get(id);
+  }
+  const context = vm.createContext({
+    sidebarTransitionTask: null,
+    byId: node, document: { body: node('body') },
+    window: { matchMedia() { return { matches: !!options.reducedMotion }; } },
+    setTimeout: h.time.schedule, clearTimeout: h.time.cancel,
+    t: key => key, errorText: error => error.message,
+    setRuntime(message) { errors.push(message); }, refreshVault() {},
+    api: {
+      invoke(channel, state) {
+        calls.push({ channel, state });
+        return n.handlers.get(channel)({ sender: { id: 1 } }, state);
+      },
+    },
+  });
+  vm.runInContext(section(sidebar, '  function applySidebarState(', '  function syncMuteState('), context);
+  n.context.sendToRenderer = (channel, payload) => {
+    if (channel === 'sidebar:state') context.applySidebarState(payload.collapsed, false);
+    if (channel === 'browser:error') errors.push(payload);
+  };
+  return { context, node, calls, errors };
+}
+
+async function finishSidebarAnimation(h, pending) {
+  await new Promise(setImmediate);
+  h.time.advance(300);
+  await pending;
 }
 
 test('handles zoom shortcuts once per press and keeps keyDown repeats', () => {
@@ -313,7 +371,7 @@ test('does not begin an outdated animation when the window resizes while prepara
   const h = game(), n = native(h, { prepareGate });
   const pending = n.handlers.get('sidebar:transition-start')({ sender: { id: 1 } }, 'collapse');
   n.setSize(1400, 800); n.context.updateLayout(false); resume();
-  assert.equal(await pending, true);
+  assert.equal(await pending, false);
   assert.equal(n.bounds.at(-1).width, 1356);
   assert.equal(n.scripts.some(code => code.includes('.beginViewportTransition(')), false);
   assert.equal(h.scale, 700 / 640);
@@ -379,5 +437,175 @@ test('cancels a scheduled resize when restoring original page styles', () => {
   const layouts = h.layouts;
   h.time.advance(100);
   assert.equal(h.layouts, layouts);
+  assert.equal(h.time.pending, 0);
+});
+
+test('releases the sidebar and allows expansion when game preparation never completes', async () => {
+  let resume;
+  const gate = new Promise(resolve => { resume = resolve; });
+  let first = true;
+  const h = game(), n = native(h, { beforeExecute(code) {
+    if (first && code.includes('.prepareViewportTransition(')) { first = false; return gate; }
+  } }), ui = sidebarUI(h, n);
+  const collapse = ui.context.toggleSidebar();
+  await new Promise(setImmediate);
+  h.time.advance(599); await new Promise(setImmediate);
+  assert.equal(ui.context.toggleSidebar(), collapse);
+  h.time.advance(1); await collapse;
+  assert.equal(ui.context.sidebarTransitionTask, null);
+  assert.equal(n.context.sidebarTransitionActive, false);
+  assert.equal(n.bounds.at(-1).width, 1276);
+
+  const expand = ui.context.toggleSidebar();
+  await finishSidebarAnimation(h, expand);
+  assert.equal(ui.node('sidebar').classList.contains('collapsed'), false);
+  assert.equal(ui.node('btn-toggle-sidebar')['aria-expanded'], 'true');
+  assert.equal(n.bounds.at(-1).width, 960);
+  const layouts = h.layouts;
+  resume(); await new Promise(setImmediate);
+  assert.equal(h.layouts, layouts);
+  assert.equal(h.time.pending, 0);
+  assert.equal(ui.node('sidebar').listenerCount, 0);
+});
+
+test('completes sidebar state when the game animation or its cleanup is unresponsive', async () => {
+  for (const method of ['.beginViewportTransition(', '.endViewportTransition(']) {
+    const h = game(), n = native(h, { beforeExecute(code) {
+      if (code.includes(method)) return new Promise(() => {});
+    } }), ui = sidebarUI(h, n);
+    const collapse = ui.context.toggleSidebar();
+    await new Promise(setImmediate);
+    h.time.advance(method.includes('begin') ? 600 : 300);
+    await collapse;
+    assert.equal(ui.context.sidebarTransitionTask, null);
+    assert.equal(n.context.sidebarTransitionActive, false);
+    assert.equal(n.context.currentConfig.view.sidebarCollapsed, true);
+    const expand = ui.context.toggleSidebar();
+    await new Promise(setImmediate);
+    h.time.advance(method.includes('begin') ? 600 : 300);
+    await expand;
+    assert.equal(ui.node('sidebar').classList.contains('collapsed'), false);
+    assert.equal(n.bounds.at(-1).width, 960);
+    assert.equal(h.time.pending, 0);
+  }
+});
+
+test('ignores old animation scripts delivered during a newer sidebar transition', async () => {
+  let resume;
+  const gate = new Promise(resolve => { resume = resolve; });
+  let first = true;
+  const h = game(), n = native(h, { beforeExecute(code) {
+    if (first && code.includes('.beginViewportTransition(')) { first = false; return gate; }
+  } }), ui = sidebarUI(h, n);
+  const collapse = ui.context.toggleSidebar();
+  await new Promise(setImmediate); h.time.advance(600); await collapse;
+  const expand = ui.context.toggleSidebar();
+  await new Promise(setImmediate);
+  const layouts = h.layouts;
+  resume(); await new Promise(setImmediate);
+  assert.equal(h.layouts, layouts);
+  h.time.advance(300); await expand;
+  assert.equal(h.scale, 1);
+  assert.equal(n.bounds.at(-1).width, 960);
+  assert.equal(h.time.pending, 0);
+});
+
+test('does not let late cleanup cancel a newer sidebar animation', async () => {
+  let resume;
+  const gate = new Promise(resolve => { resume = resolve; });
+  let first = true;
+  const h = game(), n = native(h, { beforeExecute(code) {
+    if (first && code.includes('.endViewportTransition(')) { first = false; return gate; }
+  } }), ui = sidebarUI(h, n);
+  await finishSidebarAnimation(h, ui.context.toggleSidebar());
+  const expand = ui.context.toggleSidebar(); await new Promise(setImmediate);
+  const layouts = h.layouts;
+  resume(); await new Promise(setImmediate);
+  assert.equal(h.layouts, layouts);
+  h.time.advance(300); await expand;
+  assert.equal(h.scale, 1);
+  assert.equal(h.time.pending, 0);
+});
+
+test('cleans sidebar layout and reports save failures without disabling the next click', async () => {
+  const h = game(), n = native(h), ui = sidebarUI(h, n);
+  await finishSidebarAnimation(h, ui.context.toggleSidebar());
+  n.context.store.save = () => { throw new Error('fixture EACCES'); };
+  await finishSidebarAnimation(h, ui.context.toggleSidebar());
+  assert.equal(ui.node('sidebar').classList.contains('collapsed'), false);
+  assert.equal(n.context.sidebarTransitionActive, false);
+  assert.equal(ui.context.sidebarTransitionTask, null);
+  assert.equal(n.bounds.at(-1).width, 960);
+  assert.equal(h.scale, 1);
+  assert.deepEqual(ui.errors, ['fixture EACCES']);
+  await finishSidebarAnimation(h, ui.context.toggleSidebar());
+  assert.equal(n.bounds.at(-1).width, 1276);
+  assert.equal(ui.context.sidebarTransitionTask, null);
+});
+
+test('keeps normal and reduced-motion sidebar cycles bounded without per-frame IPC', async (t) => {
+  for (const reducedMotion of [false, true]) {
+    const h = game(960, 660, { reducedMotion }), n = native(h), ui = sidebarUI(h, n, { reducedMotion });
+    for (let i = 0; i < 20; i++) {
+      const pending = ui.context.toggleSidebar();
+      assert.equal(ui.context.toggleSidebar(), pending);
+      await finishSidebarAnimation(h, pending);
+      assert.equal(h.time.pending, 0);
+      assert.equal(ui.node('sidebar').listenerCount, 0);
+    }
+    assert.equal(ui.calls.length, 40);
+    assert.equal(n.scripts.length, 60);
+    assert.equal(n.saves, 20);
+    assert.equal(ui.node('sidebar').classList.contains('collapsed'), false);
+    t.diagnostic(`${reducedMotion ? 'reduced motion' : 'normal'}: 20 toggles, 40 IPC calls, 60 scripts, 20 saves, 0 remaining timers/listeners`);
+  }
+});
+
+test('cleans an expired sidebar animation when window resizing interrupts its finalization', async () => {
+  const h = game(), n = native(h, { beforeExecute(code) {
+    if (code.includes('.beginViewportTransition(')) return new Promise(() => {});
+  } });
+  const pending = n.handlers.get('sidebar:transition-start')({ sender: { id: 1 } }, 'collapse');
+  await new Promise(setImmediate);
+  h.time.advance(600); await pending;
+  n.setSize(1400, 800); n.context.updateLayout(false);
+  await new Promise(setImmediate);
+  await n.handlers.get('sidebar:toggle')({}, 'collapse');
+  h.time.advance(100); await new Promise(setImmediate);
+  const layouts = h.layouts;
+  n.setSize(1440, 820); n.context.updateLayout(false);
+  h.time.advance(16);
+  assert.ok(h.layouts > layouts);
+  assert.equal(n.bounds.at(-1).width, 1396);
+});
+
+test('rejects delayed preparation after game navigation instead of animating a replaced frame', async () => {
+  let resume;
+  const gate = new Promise(resolve => { resume = resolve; });
+  const h = game(), n = native(h, { beforeExecute(code) {
+    if (code.includes('.prepareViewportTransition(')) return gate;
+  } });
+  const pending = n.handlers.get('sidebar:transition-start')({ sender: { id: 1 } }, 'collapse');
+  n.context.resetGameContent();
+  n.context.gameView.webContents.mainFrame.detached = true;
+  resume();
+  assert.equal(await pending, false);
+  assert.equal(n.scripts.some(code => code.includes('.beginViewportTransition(')), false);
+  await n.handlers.get('sidebar:toggle')({}, 'collapse');
+  assert.equal(n.context.sidebarTransitionActive, false);
+  assert.equal(n.bounds.at(-1).width, 1276);
+  assert.equal(h.time.pending, 0);
+});
+
+test('handles rejected IPC responses through the existing error display and releases the click lock', async () => {
+  const h = game(), n = native(h), ui = sidebarUI(h, n, { reducedMotion: true });
+  n.handlers.set('sidebar:transition-start', async () => { throw new Error('fixture preparation error'); });
+  n.handlers.set('sidebar:toggle', async () => { throw new Error('fixture completion error'); });
+  await ui.context.toggleSidebar();
+  assert.equal(ui.context.sidebarTransitionTask, null);
+  assert.deepEqual(ui.errors, ['fixture completion error']);
+  await ui.context.toggleSidebar();
+  assert.equal(ui.node('sidebar').classList.contains('collapsed'), false);
+  assert.equal(ui.context.sidebarTransitionTask, null);
   assert.equal(h.time.pending, 0);
 });

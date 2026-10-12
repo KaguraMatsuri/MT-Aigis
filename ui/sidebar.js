@@ -670,6 +670,8 @@
       waitForSidebarTransition(sidebar),
     ]).then(function () {
       return api.invoke('sidebar:toggle', state);
+    }).catch(function (error) {
+      setRuntime(errorText(error), true);
     }).finally(function () {
       sidebarTransitionTask = null;
     });

@@ -60,6 +60,7 @@ const MIN_WINDOW_W = 900;
 const MIN_WINDOW_H = 620;
 const SIDEBAR_OPEN_WIDTH = 360;
 const SIDEBAR_CLOSED_WIDTH = 44;
+const SIDEBAR_TRANSITION_TIMEOUT = 600;
 const VIEW_PARTITION = 'persist:mt-aigis-view';
 const CHROME_VERSION = process.versions.chrome || '144.0.0.0';
 const CHROME_UA = `Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
@@ -292,6 +293,8 @@ let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
 let layoutPresentationTimer = null;
 let sidebarTransitionActive = false;
+let sidebarTransition = null;
+let sidebarTransitionSequence = 0;
 let cacheStatsCache = null;
 let cacheStatsAt = 0;
 let cacheStatsTask = null;
@@ -940,6 +943,7 @@ function createWindow() {
     stopAnonymousUsageForWindow();
     resolveTelemetryConsentWaiters(false);
     resetGameContent();
+    cancelSidebarTransition();
     sidebarTransitionActive = false;
     sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
     if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
@@ -1453,15 +1457,39 @@ function updateLayout(debounce) {
   applyGameViewBounds();
   if (sidebarTransitionActive) {
     sidebarTransitionActive = false;
-    gameView.webContents.executeJavaScript(
-      'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.endViewportTransition() : null'
-    ).catch(() => null);
+    const transition = sidebarTransition;
+    cancelSidebarTransition();
+    if (transition) executeSidebarTransition(transition, 'endViewportTransition');
   }
   if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
   layoutPresentationTimer = setTimeout(() => {
     layoutPresentationTimer = null;
     applyGamePresentation();
   }, debounce === false ? 20 : 90);
+}
+
+function cancelSidebarTransition() {
+  if (sidebarTransition && sidebarTransition.cancel) sidebarTransition.cancel();
+  sidebarTransition = null;
+}
+
+function executeSidebarTransition(transition, method, options) {
+  try {
+    if (transition.frame.isDestroyed() || transition.frame.detached) return Promise.resolve(null);
+    return transition.frame.executeJavaScript(`(() => {
+      const sequence = ${transition.sequence};
+      const finished = ${method === 'endViewportTransition'};
+      const previous = window.__MT_SIDEBAR_TRANSITION__;
+      if (previous && (previous.sequence > sequence ||
+        (previous.sequence === sequence && previous.finished && !finished))) return null;
+      if (!finished && Date.now() >= ${transition.expires}) return null;
+      window.__MT_SIDEBAR_TRANSITION__ = { sequence, finished };
+      if (!window.__MT_GAME_FOCUS__) return null;
+      return window.__MT_GAME_FOCUS__.${method}(${options ? JSON.stringify(options) : ''});
+    })()`).catch(() => null);
+  } catch (_) {
+    return Promise.resolve(null);
+  }
 }
 
 function applyGameViewBounds(sidebarWidth) {
@@ -2581,26 +2609,47 @@ ipcMain.handle('sidebar:transition-start', async (event, state) => {
   stopGameClicker();
   const window = mainWindow;
   const view = gameView;
+  cancelSidebarTransition();
+  const transition = {
+    sequence: ++sidebarTransitionSequence,
+    epoch: gameContentEpoch,
+    frame: view.webContents.mainFrame,
+    expires: Date.now() + SIDEBAR_TRANSITION_TIMEOUT,
+    cancel: null,
+    cancelled: false,
+  };
+  sidebarTransition = transition;
   sidebarCollapsed = state === 'collapse';
   const targetSidebarWidth = sidebarCollapsed ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH;
   sidebarTransitionActive = true;
   if (layoutPresentationTimer) clearTimeout(layoutPresentationTimer);
   layoutPresentationTimer = null;
-  await view.webContents.executeJavaScript(
-    'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.prepareViewportTransition() : null'
-  ).catch(() => null);
-  if (mainWindow !== window || gameView !== view || window.isDestroyed() || view.webContents.isDestroyed()) return false;
-  if (!sidebarTransitionActive) return true;
-  applyGameViewBounds(targetSidebarWidth);
-  const size = window.getContentSize();
-  await view.webContents.executeJavaScript(
-    `window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.beginViewportTransition(${JSON.stringify({
+  let timeout;
+  const cancelled = new Promise((resolve) => {
+    transition.cancel = () => {
+      transition.cancelled = true;
+      resolve(false);
+    };
+    timeout = setTimeout(transition.cancel, SIDEBAR_TRANSITION_TIMEOUT);
+  });
+  const animate = (async () => {
+    await executeSidebarTransition(transition, 'prepareViewportTransition');
+    if (transition.cancelled || sidebarTransition !== transition || mainWindow !== window || gameView !== view ||
+      gameContentEpoch !== transition.epoch || window.isDestroyed() || view.webContents.isDestroyed()) return false;
+    if (!sidebarTransitionActive) return true;
+    applyGameViewBounds(targetSidebarWidth);
+    const size = window.getContentSize();
+    await executeSidebarTransition(transition, 'beginViewportTransition', {
       width: Math.max(1, size[0] - targetSidebarWidth),
       height: Math.max(1, size[1] - TOP_BAR_H - BOTTOM_BAR_H),
       duration: 200,
-    })}) : null`
-  ).catch(() => null);
-  return true;
+    });
+    return !transition.cancelled && sidebarTransition === transition;
+  })();
+  return Promise.race([animate, cancelled]).finally(() => {
+    clearTimeout(timeout);
+    transition.cancel = null;
+  });
 });
 
 ipcMain.handle('scroll:set-level', (_, level) => {
@@ -2866,17 +2915,27 @@ ipcMain.handle('sidebar:toggle', async (_, state) => {
   if (!mainWindow || !gameView) return;
   sidebarCollapsed = state === 'collapse';
   currentConfig.view.sidebarCollapsed = sidebarCollapsed;
-  store.save(currentConfig);
+  let saveError = null;
+  try {
+    store.save(currentConfig);
+  } catch (error) {
+    saveError = error;
+  }
   sendToRenderer('sidebar:state', { collapsed: sidebarCollapsed });
   applyGameViewBounds();
+  const transition = sidebarTransition;
+  cancelSidebarTransition();
   if (sidebarTransitionActive) {
     sidebarTransitionActive = false;
-    await gameView.webContents.executeJavaScript(
-      'window.__MT_GAME_FOCUS__ ? window.__MT_GAME_FOCUS__.endViewportTransition() : null'
-    ).catch(() => null);
+    const completed = transition || {
+      sequence: ++sidebarTransitionSequence,
+      frame: gameView.webContents.mainFrame,
+    };
+    executeSidebarTransition(completed, 'endViewportTransition');
   } else {
-    await applyGamePresentation();
+    applyGamePresentation();
   }
+  if (saveError) sendToRenderer('browser:error', saveError.message || String(saveError));
   return { collapsed: sidebarCollapsed };
 });
 
