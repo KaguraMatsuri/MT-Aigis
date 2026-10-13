@@ -1294,7 +1294,7 @@ function normalizeConfig(rawConfig) {
     },
     clicker: {
       enabled: clicker.enabled !== false,
-      cps: Number.isFinite(cps) ? Math.max(1, Math.min(10, Math.round(cps))) : 5,
+      cps: Number.isFinite(cps) ? Math.max(1, Math.min(10, Math.round(cps))) : 10,
       keyCode: isClickerKeyCode(clicker.keyCode) ? clicker.keyCode : base.clicker.keyCode,
       acknowledged: clicker.acknowledged === true,
     },

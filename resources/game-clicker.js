@@ -3,7 +3,7 @@
 
   if (window.__MT_AIGIS_CLICKER__) return { installed: true, fresh: false };
 
-  let enabled = false, acknowledged = false, active = false, cps = 5;
+  let enabled = false, acknowledged = false, active = false, cps = 10;
   let keyCode = 'KeyB', externalKeyboardHeld = false;
   let keyboardHeld = false, pointerHeld = false, keyDown = false;
   let timer = null, pressed = null, geometry = null, lastDown = -Infinity;
@@ -170,7 +170,7 @@
       active = !!options.active;
       keyCode = /^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2]))$/.test(options.keyCode) ? options.keyCode : 'KeyB';
       const value = Number(options.cps);
-      cps = Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
+      cps = Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 10;
       if (!enabled || !active || !acknowledged || !previousAcknowledged || previousKeyCode !== keyCode) stop();
       updateKeys();
       if (!enabled || acknowledged) resolveFirstUse(false);

@@ -351,7 +351,7 @@ test('rejects other senders, ignores acknowledgement supplied by the UI, and nor
   const state = await n.invoke('clicker:settings', { cps: 999, acknowledged: true });
   assert.equal(state.cps, 10); assert.equal(state.acknowledged, false);
   const original = n.context.normalizeConfig({});
-  assert.deepEqual(JSON.parse(JSON.stringify(original.clicker)), { enabled: true, cps: 5, keyCode: 'KeyB', acknowledged: false });
+  assert.deepEqual(JSON.parse(JSON.stringify(original.clicker)), { enabled: true, cps: 10, keyCode: 'KeyB', acknowledged: false });
   assert.equal(n.context.normalizeConfig({ clicker: { cps: 15 } }).clicker.cps, 10);
 });
 
@@ -738,7 +738,7 @@ test('stops child-frame navigation using Electron navigation details and discard
 test('uses the approved button and settings labels, native slider bounds, and retains the mute control', () => {
   const html = fs.readFileSync(path.join(root, 'ui/index.html'), 'utf8');
   assert.match(html, /id="btn-story-skip"[^>]*aria-keyshortcuts="B"[^>]*>跳过剧情\[B\]</);
-  assert.match(html, /id="clicker-cps"[^>]*min="1"[^>]*max="10"[^>]*step="1"[^>]*value="5"/);
+  assert.match(html, /id="clicker-cps"[^>]*min="1"[^>]*max="10"[^>]*step="1"[^>]*value="10"/);
   assert.match(html, /id="btn-mute"/);
   assert.match(html, /for="clicker-enabled">跳过剧情\[B\]</);
   assert.match(html, /for="clicker-cps">CPS</);
