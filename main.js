@@ -358,11 +358,16 @@ function debugLog(...parts) {
 }
 
 async function flushDebugLog() {
-  let pending;
-  do {
-    pending = debugLogTask;
-    await pending;
-  } while (pending !== debugLogTask);
+  const pending = debugLogTask;
+  let timeout;
+  try {
+    await Promise.race([
+      pending,
+      new Promise(resolve => { timeout = setTimeout(resolve, 2000); }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function loadGameNewsDiskCache() {

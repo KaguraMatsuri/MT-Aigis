@@ -221,10 +221,13 @@ test('coalesces repeated UI probe clicks before IPC and allows retries after rej
 
 function logHarness(options = {}) {
   const files = new Map(), counts = { stat: 0, append: 0, rename: 0 };
+  const timers = new Map();
   if (options.initial) files.set('/virtual/debug.log', options.initial);
   const context = vm.createContext({
     DEBUG_LOG: '/virtual/debug.log', debugLogTask: Promise.resolve(), debugLogSize: null,
     Buffer, Date, console: { log() {} },
+    setTimeout(callback, delay) { timers.set(callback, delay); return callback; },
+    clearTimeout(timer) { timers.delete(timer); },
     fs: { promises: {
       async stat(file) { counts.stat++; return { size: Buffer.byteLength(files.get(file) || '') }; },
       async appendFile(file, line) {
@@ -235,7 +238,7 @@ function logHarness(options = {}) {
     } },
   });
   vm.runInContext(section(main, 'function debugLog(', 'function loadGameNewsDiskCache('), context);
-  return { context, counts, files };
+  return { context, counts, files, timers };
 }
 
 test('writes logs asynchronously in order with a single initial file-size query', async () => {
@@ -244,12 +247,35 @@ test('writes logs asynchronously in order with a single initial file-size query'
   assert.equal(h.counts.append, 0);
   let flushed = false; const pending = h.context.flushDebugLog().then(() => { flushed = true; });
   await turn(); assert.equal(h.counts.append, 1); assert.equal(flushed, false);
-  h.context.debugLog('late');
   gate.resolve(); await pending;
   const lines = h.files.get('/virtual/debug.log').trim().split('\n');
-  assert.equal(lines.length, 101); assert.equal(h.counts.stat, 1);
-  lines.slice(0, 100).forEach((line, i) => assert.ok(line.endsWith('fixture-' + i)));
-  assert.ok(lines.at(-1).endsWith('late'));
+  assert.equal(lines.length, 100); assert.equal(h.counts.stat, 1);
+  lines.forEach((line, i) => assert.ok(line.endsWith('fixture-' + i)));
+  assert.equal(h.timers.size, 0);
+});
+
+test('does not extend the shutdown wait to include newly queued logs', async () => {
+  const first = deferred(), later = deferred();
+  const h = logHarness({ beforeWrite(_line, count) { return count === 1 ? first.promise : later.promise; } });
+  h.context.debugLog('before-shutdown'); await turn();
+  const pending = h.context.flushDebugLog();
+  for (let i = 0; i < 20; i++) h.context.debugLog('after-shutdown-' + i);
+  first.resolve(); await pending;
+  assert.equal(h.files.get('/virtual/debug.log').trim().split('\n').length, 1);
+  assert.equal(h.timers.size, 0);
+  later.resolve(); await h.context.debugLogTask;
+});
+
+test('limits the log wait to two seconds even when the filesystem never responds', async () => {
+  const h = logHarness({ beforeWrite() { return new Promise(() => {}); } });
+  h.context.debugLog('stalled'); await turn();
+  let finished = false;
+  const pending = h.context.flushDebugLog().then(() => { finished = true; });
+  await turn(); assert.equal(finished, false);
+  const [[expire, delay]] = [...h.timers];
+  assert.equal(delay, 2000);
+  expire(); await pending;
+  assert.equal(finished, true); assert.equal(h.timers.size, 0);
 });
 
 test('rotates logs before the next queued write and recovers after write failure', async () => {
@@ -269,7 +295,7 @@ test('flushes the real asynchronous file API into an isolated log before complet
   const file = path.join(directory, 'debug.log');
   const context = vm.createContext({
     DEBUG_LOG: file, debugLogTask: Promise.resolve(), debugLogSize: null,
-    Buffer, Date, fs, console: { log() {} },
+    Buffer, Date, fs, setTimeout, clearTimeout, console: { log() {} },
   });
   vm.runInContext(section(main, 'function debugLog(', 'function loadGameNewsDiskCache('), context);
   for (let i = 0; i < 20; i++) context.debugLog('fixture-' + i);
