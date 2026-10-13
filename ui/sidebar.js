@@ -10,6 +10,11 @@
   var sidebarTransitionTask = null;
   var pingTasks = {};
   var networkStatusTask = null;
+  var volumeEditing = false;
+  var volumeTimer = null;
+  var volumeRequestRevision = 0;
+  var volumeRequests = 0;
+  var audioRevision = -1;
   var sidebarScrolling = false;
   var sidebarScrollIdleTimer = null;
   var customUrlEditing = false;
@@ -94,6 +99,7 @@
       qqServer: 'QQ',
       muted: '恢复声音',
       unmuted: '静音游戏',
+      volume: '音量',
       ready: '准备就绪',
       copied: '已复制',
       cacheClearing: '清除中...',
@@ -219,6 +225,7 @@
       qqServer: 'QQ',
       muted: '恢復聲音',
       unmuted: '靜音遊戲',
+      volume: '音量',
       ready: '準備就緒',
       copied: '已複製',
       cacheClearing: '清除中...',
@@ -344,6 +351,7 @@
       qqServer: 'QQ',
       muted: 'Unmute',
       unmuted: 'Mute Game',
+      volume: 'Volume',
       ready: 'Ready',
       copied: 'Copied',
       cacheClearing: 'Clearing...',
@@ -469,6 +477,7 @@
       qqServer: 'QQ',
       muted: '音声を戻す',
       unmuted: 'ゲームをミュート',
+      volume: '音量',
       ready: '準備完了',
       copied: 'コピーしました',
       cacheClearing: '消去中...',
@@ -699,6 +708,32 @@
   function applyCustomUrlState(state) {
     if (!state || customUrlEditing) return;
     byId('custom-url').value = state.homeUrl || 'https://play.games.dmm.com/game/aigisc';
+  }
+
+  function renderAudioState(state) {
+    if (!state || state.revision < audioRevision) return;
+    audioRevision = state.revision;
+    if (volumeEditing || volumeRequests) return;
+    byId('game-volume').value = String(state.volume);
+    byId('game-volume-value').textContent = state.volume + '%';
+  }
+
+  function sendAudioVolume(save) {
+    clearTimeout(volumeTimer);
+    volumeTimer = null;
+    var revision = ++volumeRequestRevision;
+    var volume = Number(byId('game-volume').value);
+    volumeRequests++;
+    return api.invoke('audio:set-volume', { volume: volume, save: save }).catch(function (error) {
+      setRuntime(errorText(error), true);
+      return api.invoke('audio:state');
+    }).then(function (state) {
+      volumeRequests--;
+      if (revision === volumeRequestRevision) renderAudioState(state);
+    }, function (error) {
+      volumeRequests--;
+      setRuntime(errorText(error), true);
+    });
   }
 
   function setCustomUrlEditing(editing) {
@@ -1332,6 +1367,15 @@
   byId('btn-mute').addEventListener('click', function () {
     api.invoke('browser:navigate', 'mute-toggle').then(function () { return refreshBrowserState(); });
   });
+  byId('game-volume').addEventListener('input', function () {
+    volumeEditing = true;
+    byId('game-volume-value').textContent = this.value + '%';
+    if (!volumeTimer) volumeTimer = setTimeout(function () { sendAudioVolume(false); }, 50);
+  });
+  byId('game-volume').addEventListener('change', function () {
+    volumeEditing = false;
+    sendAudioVolume(true);
+  });
   byId('btn-ping-all').addEventListener('click', function () {
     Object.keys(pingFields).forEach(runPing);
     refreshNetworkStatus(false);
@@ -1411,7 +1455,9 @@
   api.on('update:state', updateUpdateState);
   api.on('update:prompt', showUpdatePrompt);
   api.on('clicker:state', function (state) { renderClicker(state); });
+  api.on('audio:state', renderAudioState);
   installClickerControls();
+  api.invoke('audio:state').then(renderAudioState).catch(function (error) { setRuntime(errorText(error), true); });
 
   api.invoke('config:get').then(function (config) {
     renderClicker(config.clicker, true);

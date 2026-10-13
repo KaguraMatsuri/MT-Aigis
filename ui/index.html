@@ -279,6 +279,11 @@
     <button id="btn-mute" class="mute-toggle" title="静音游戏" aria-label="静音游戏">
       <span id="mute-label" data-i18n="unmuted">静音游戏</span>
     </button>
+    <div class="volume-control">
+      <label for="game-volume" data-i18n="volume">音量</label>
+      <input id="game-volume" type="range" min="0" max="100" step="1" value="100">
+      <output id="game-volume-value" for="game-volume">100%</output>
+    </div>
     <button id="btn-story-skip" class="mute-toggle" type="button" title="跳过剧情[B]" aria-keyshortcuts="B" hidden disabled>跳过剧情[B]</button>
   </div>
 

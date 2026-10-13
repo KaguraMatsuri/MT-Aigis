@@ -328,7 +328,7 @@ function installAutofill() {
   scheduleTotpScan();
 }
 
-if (typeof document !== 'undefined') {
+if (typeof document !== 'undefined' && process.isMainFrame) {
   installGameLaunchMask();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', installAutofill, { once: true });

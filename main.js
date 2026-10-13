@@ -295,6 +295,8 @@ let gameViewLoadingMasked = true;
 let gameViewFallbackHidden = normalizeTelemetryConsent(currentConfig.telemetry.consent) === null;
 let quitAfterFlush = false;
 let sidebarCollapsed = !!currentConfig.view.sidebarCollapsed;
+let gameAudioVolume = normalizeAudioVolume(currentConfig.view.audioVolume);
+let gameAudioRevision = 0;
 let layoutPresentationTimer = null;
 let sidebarTransitionActive = false;
 let sidebarTransition = null;
@@ -1006,6 +1008,7 @@ function createGameView() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: true,
       backgroundThrottling: false,
       spellcheck: false,
     },
@@ -1075,6 +1078,12 @@ function createGameView() {
 
   gameView.webContents.setZoomFactor(1);
   const gameSession = gameView.webContents.session;
+  if (!gameSession.getPreloadScripts().some(script => script.id === 'mt-aigis-audio')) {
+    gameSession.registerPreloadScript({
+      id: 'mt-aigis-audio', type: 'frame',
+      filePath: path.join(__dirname, 'resources', 'game-audio-preload.js'),
+    });
+  }
   gameSession.setUserAgent(CHROME_UA, 'ja');
   gameSession.setPermissionRequestHandler((_, __, callback) => callback(false));
   gameSession.webRequest.onBeforeRequest(
@@ -1289,6 +1298,7 @@ function normalizeConfig(rawConfig) {
       language: normalizeLanguage(source.view && source.view.language),
       customUrl: normalizeCustomUrl(source.view && source.view.customUrl) || '',
       alwaysOnTop: !!(source.view && source.view.alwaysOnTop),
+      audioVolume: normalizeAudioVolume(source.view && source.view.audioVolume),
     },
     session: {
       ...base.session,
@@ -1316,6 +1326,11 @@ function normalizeConfig(rawConfig) {
 
 function isClickerKeyCode(code) {
   return typeof code === 'string' && /^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2]))$/.test(code);
+}
+
+function normalizeAudioVolume(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(100, Math.round(value))) : 100;
 }
 
 function normalizeZoomFactor(value) {
@@ -2496,6 +2511,42 @@ ipcMain.handle('browser:navigate', async (_, action) => {
     gameView.webContents.setAudioMuted(!gameView.webContents.isAudioMuted());
   }
   return true;
+});
+
+function getGameAudioState() {
+  return { volume: gameAudioVolume, revision: gameAudioRevision };
+}
+
+ipcMain.handle('audio:state', (event) => {
+  if (event.sender.id !== mainWindow?.webContents.id && event.sender.id !== gameView?.webContents.id) return null;
+  return getGameAudioState();
+});
+
+ipcMain.handle('audio:set-volume', (event, payload) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id ||
+    !payload || typeof payload.volume !== 'number' || !Number.isFinite(payload.volume) ||
+    payload.volume < 0 || payload.volume > 100 || typeof payload.save !== 'boolean') return null;
+  const volume = normalizeAudioVolume(payload.volume);
+  if (payload.save) {
+    store.save({ ...currentConfig, view: { ...currentConfig.view, audioVolume: volume } });
+    currentConfig.view.audioVolume = volume;
+  }
+  if (gameAudioVolume !== volume) {
+    gameAudioVolume = volume;
+    gameAudioRevision++;
+    const state = getGameAudioState();
+    if (gameView && !gameView.webContents.isDestroyed()) {
+      try {
+        for (const frame of gameView.webContents.mainFrame.framesInSubtree) {
+          try {
+            if (!frame.isDestroyed() && !frame.detached) frame.send('audio:state', state);
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    sendToRenderer('audio:state', state);
+  }
+  return getGameAudioState();
 });
 
 ipcMain.handle('window:titlebar-toggle', (event) => {
