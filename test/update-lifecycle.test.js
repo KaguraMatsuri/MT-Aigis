@@ -53,6 +53,7 @@ function fixture(t) {
     ensureOverlayView: async () => true, applyOverlayBounds: () => true, syncGameClicker: async () => {},
     syncGameViewVisibility() {}, stopGameClicker() {}, stopAnonymousUsageForWindow() {},
     resolveTelemetryConsentWaiters() {}, resetGameContent() {}, cancelSidebarTransition() {},
+    async flushDebugLog() { events.push({ channel: 'logs-flushed' }); },
     debugLog() {}, trustedGameNewsUrl: url => url || '',
     sendToRenderer(channel, value) { events.push({ channel, value }); listeners.get(channel)?.(value); },
     setTimeout(callback, delay) { const timer = { callback, delay, active: true }; timers.push(timer); return timer; },
@@ -91,7 +92,8 @@ function fixture(t) {
   context.gameView = { webContents: { isDestroyed: () => false, close() { events.push({ channel: 'game-closed' }); },
     session: {
       flushStorageData() { counts.flush++; events.push({ channel: 'storage-flushed' }); },
-      cookies: { async get() { return []; }, async flushStore() { counts.cookieFlush++; } },
+      cookies: { async get() { return [{ name: 'fixture', value: 'synthetic', domain: '.dmm.com' }]; },
+        async flushStore() { counts.cookieFlush++; } },
     } } };
   context.store = { save() { counts.save++; events.push({ channel: 'config-saved' }); } };
   context.shell = { async openPath() { return ''; } };
@@ -254,6 +256,7 @@ test('finishes cookie and session persistence before update shutdown destroys th
   flushed.resolve(); await turn();
   assert.equal(c.gameView, null); assert.equal(h.counts.close, 1);
   assert.ok(h.events.findIndex(event => event.channel === 'config-saved') < h.events.findIndex(event => event.channel === 'game-closed'));
+  assert.ok(h.events.findIndex(event => event.channel === 'logs-flushed') < h.events.findIndex(event => event.channel === 'game-closed'));
 });
 
 test('keeps the application running after installer open failure and permits a fresh update attempt', async t => {
@@ -265,6 +268,27 @@ test('keeps the application running after installer open failure and permits a f
   c.shell.openPath = async () => '';
   assert.equal((await c.checkForUpdates()).status, 'opened');
   assert.equal(h.counts.manifest, 2); assert.equal(h.counts.release, 2); assert.equal(h.counts.download, 2);
+});
+
+test('waits for pending logs even when the last window is already closed', async t => {
+  const h = fixture(t), c = h.context, gate = deferred();
+  c.gameView = null;
+  c.flushDebugLog = () => gate.promise;
+  let prevented = false;
+  c.beforeQuit({ preventDefault() { prevented = true; } });
+  await turn();
+  assert.equal(prevented, true); assert.equal(h.counts.quit, 0);
+  gate.resolve(); await turn();
+  assert.equal(h.counts.quit, 1);
+});
+
+test('still flushes native session storage when the saved cookies have not changed', async t => {
+  const h = fixture(t), c = h.context;
+  await c.persistAuthCookies();
+  h.counts.save = 0;
+  await c.flushSessionData('before-quit');
+  assert.equal(h.counts.save, 0);
+  assert.equal(h.counts.flush, 1); assert.equal(h.counts.cookieFlush, 1);
 });
 
 test('defers a pending update when the owning window is closed', async t => {

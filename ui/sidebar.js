@@ -8,6 +8,8 @@
   var gameNewsState = null;
   var currentGameNewsUrl = '';
   var sidebarTransitionTask = null;
+  var pingTasks = {};
+  var networkStatusTask = null;
   var sidebarScrolling = false;
   var sidebarScrollIdleTimer = null;
   var customUrlEditing = false;
@@ -617,6 +619,10 @@
     document.querySelectorAll('.page').forEach(function (page) {
       page.classList.toggle('active', page.id === 'page-' + name);
     });
+    if (name === 'game') {
+      refreshBrowserState();
+      refreshCache(false);
+    }
   }
 
   function applySidebarState(collapsed, notifyMain) {
@@ -629,6 +635,10 @@
     toggleButton.setAttribute('aria-label', collapsed ? t('expandSidebar') : t('collapseSidebar'));
     toggleButton.setAttribute('aria-expanded', String(!collapsed));
     if (notifyMain) api.invoke('sidebar:toggle', collapsed ? 'collapse' : 'expand');
+    if (wasCollapsed && !collapsed && byId('page-game').classList.contains('active')) {
+      refreshBrowserState();
+      refreshCache(false);
+    }
     if (
       wasCollapsed && !collapsed &&
       byId('page-vault').classList.contains('active') &&
@@ -682,7 +692,8 @@
     byId('btn-mute').classList.toggle('muted', isMuted);
     byId('btn-mute').title = isMuted ? t('muted') : t('unmuted');
     byId('btn-mute').setAttribute('aria-label', isMuted ? t('muted') : t('unmuted'));
-    byId('mute-label').textContent = isMuted ? t('muted') : t('unmuted');
+    var label = isMuted ? t('muted') : t('unmuted');
+    if (byId('mute-label').textContent !== label) byId('mute-label').textContent = label;
   }
 
   function applyCustomUrlState(state) {
@@ -707,14 +718,17 @@
     if (deferWhileScrolling && sidebarScrolling) return Promise.resolve(null);
     return api.invoke('browser:state').then(function (browser) {
       if (deferWhileScrolling && sidebarScrolling) return null;
-      byId('page-title').textContent = browser.title || 'MT-Aigis';
-      byId('page-url').textContent = browser.url || 'https://play.games.dmm.com/game/aigisc';
-      byId('top-status').textContent = browser.loading ? t('loading') : t('gameSession');
-      byId('zoom-value').textContent = Math.round((browser.zoomFactor || 1) * 100) + '%';
+      if (isGamePageVisible()) {
+        byId('page-title').textContent = browser.title || 'MT-Aigis';
+        byId('page-url').textContent = browser.url || 'https://play.games.dmm.com/game/aigisc';
+        byId('zoom-value').textContent = Math.round((browser.zoomFactor || 1) * 100) + '%';
+        updateScrollControl(browser.scrollLevel || 5);
+      }
+      var status = browser.loading ? t('loading') : t('gameSession');
+      if (byId('top-status').textContent !== status) byId('top-status').textContent = status;
       applyCustomUrlState(browser);
       syncMuteState(!!browser.audioMuted);
-      updateScrollControl(browser.scrollLevel || 5);
-      if (!browser.loading) {
+      if (isGamePageVisible() && !browser.loading) {
         byId('btn-reload').classList.remove('loading');
         byId('btn-reload').disabled = false;
       }
@@ -726,7 +740,8 @@
   }
 
   function refreshNetworkStatus(showMessage) {
-    return api.invoke('network:status').then(function (network) {
+    if (networkStatusTask) return networkStatusTask;
+    networkStatusTask = api.invoke('network:status').then(function (network) {
       byId('network-ip').textContent = network.ip || network.error || t('unavailable');
       byId('network-region').textContent =
         [network.countryCode, network.city, network.provider].filter(Boolean).join(' · ') || t('unknownRegion');
@@ -739,7 +754,8 @@
     }).catch(function (error) {
       byId('network-ip').textContent = t('networkFailed');
       if (showMessage) setRuntime(errorText(error), true);
-    });
+    }).finally(function () { networkStatusTask = null; });
+    return networkStatusTask;
   }
 
   function renderGameNews(state) {
@@ -837,10 +853,11 @@
   }
 
   function runPing(target) {
+    if (pingTasks[target]) return pingTasks[target];
     var field = pingFields[target];
     field.textContent = '...';
     field.className = 'ping-value testing';
-    api.invoke('network:ping', target).then(function (result) {
+    pingTasks[target] = api.invoke('network:ping', target).then(function (result) {
       field.textContent = result.ok ? result.ms + ' ms' : t('pingFailed');
       field.title = result.error || '';
       field.className = 'ping-value ' + (result.ok ? 'ok' : 'failed');
@@ -848,7 +865,8 @@
       field.textContent = t('pingFailed');
       field.title = errorText(error);
       field.className = 'ping-value failed';
-    });
+    }).finally(function () { delete pingTasks[target]; });
+    return pingTasks[target];
   }
 
   function updateScrollControl(level) {
@@ -862,14 +880,23 @@
     byId('cache-disk').textContent = formatBytes(stats.diskBytes || stats.httpBytes || 0);
   }
 
+  function isGamePageVisible() {
+    return document.visibilityState !== 'hidden' &&
+      !document.body.classList.contains('sidebar-collapsed') &&
+      byId('page-game').classList.contains('active');
+  }
+
   function refreshCache(force, deferWhileScrolling) {
     if (deferWhileScrolling && sidebarScrolling) return Promise.resolve(null);
+    if (!force && !isGamePageVisible()) return Promise.resolve(null);
     return api.invoke('cache:stats', !!force).then(function (stats) {
       if (deferWhileScrolling && sidebarScrolling) return null;
+      if (!isGamePageVisible()) return stats;
       renderCache(stats);
       return stats;
     }).catch(function () {
       if (deferWhileScrolling && sidebarScrolling) return null;
+      if (!isGamePageVisible()) return null;
       byId('cache-disk').textContent = t('readFailed');
     });
   }
@@ -1408,6 +1435,12 @@
   refreshNetworkStatus(false);
   refreshGameNews(false);
   refreshCache(false);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'hidden') {
+      refreshBrowserState();
+      refreshCache(false);
+    }
+  });
   setTimeout(function () { Object.keys(pingFields).forEach(runPing); }, 700);
   setInterval(function () {
     if (!sidebarScrolling) refreshBrowserState(true);

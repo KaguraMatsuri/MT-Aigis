@@ -303,6 +303,9 @@ let cacheStatsCache = null;
 let cacheStatsAt = 0;
 let cacheStatsTask = null;
 let cacheClearTask = null;
+let authCookieSession = null;
+const networkProbeTasks = new Map();
+let networkStatusTask = null;
 let gameViewAttached = false;
 let updateState = {
   status: 'idle',
@@ -328,23 +331,38 @@ const anonymousUsage = createAnonymousUsageClient({
   onState: (state) => sendToRenderer('telemetry:state', getPublicTelemetryState(state)),
 });
 
+let debugLogTask = Promise.resolve();
+let debugLogSize = null;
 log.initialize();
 loadGameNewsDiskCache();
 
 function debugLog(...parts) {
-  try {
-    if (fs.existsSync(DEBUG_LOG) && fs.statSync(DEBUG_LOG).size > 2 * 1024 * 1024) {
-      fs.renameSync(DEBUG_LOG, `${DEBUG_LOG}.1`);
-    }
-  } catch {}
   const line = `[${new Date().toISOString()}] ${parts.map((part) => {
     if (typeof part === 'string') return part;
     try { return JSON.stringify(part); } catch { return String(part); }
   }).join(' ')}\n`;
-  try {
-    fs.appendFileSync(DEBUG_LOG, line);
-  } catch {}
+  debugLogTask = debugLogTask.then(async () => {
+    if (debugLogSize === null) {
+      debugLogSize = await fs.promises.stat(DEBUG_LOG).then(stat => stat.size).catch(() => 0);
+    }
+    if (debugLogSize > 2 * 1024 * 1024) {
+      try {
+        await fs.promises.rename(DEBUG_LOG, `${DEBUG_LOG}.1`);
+        debugLogSize = 0;
+      } catch {}
+    }
+    await fs.promises.appendFile(DEBUG_LOG, line);
+    debugLogSize += Buffer.byteLength(line);
+  }).catch(() => { debugLogSize = null; });
   console.log('[MT-Aigis]', ...parts);
+}
+
+async function flushDebugLog() {
+  let pending;
+  do {
+    pending = debugLogTask;
+    await pending;
+  } while (pending !== debugLogTask);
 }
 
 function loadGameNewsDiskCache() {
@@ -1096,7 +1114,7 @@ function createGameView() {
       resourceType: details.resourceType,
     });
   });
-  gameSession.cookies.on('changed', () => scheduleSessionFlush('cookie-change'));
+  observeAuthCookies(gameSession);
   gameSession.getCacheSize()
     .then((bytes) => debugLog('cache-ready', { bytes, path: USER_DATA }))
     .catch(() => {});
@@ -1639,6 +1657,17 @@ function loadDirectGame(reason) {
   });
 }
 
+function onAuthCookieChanged(_event, cookie) {
+  if (cookie && isDmmCookie(cookie)) scheduleSessionFlush('cookie-change');
+}
+
+function observeAuthCookies(session) {
+  if (authCookieSession === session) return;
+  if (authCookieSession) authCookieSession.cookies.removeListener('changed', onAuthCookieChanged);
+  authCookieSession = session;
+  session.cookies.on('changed', onAuthCookieChanged);
+}
+
 function scheduleSessionFlush(reason) {
   if (sessionFlushTimer) clearTimeout(sessionFlushTimer);
   sessionFlushTimer = setTimeout(() => {
@@ -1719,10 +1748,14 @@ function serializeCookie(cookie) {
 
 async function persistAuthCookies() {
   if (!gameView || gameView.webContents.isDestroyed()) return;
-  const cookies = await gameView.webContents.session.cookies.get({});
+  const view = gameView;
+  const cookies = await view.webContents.session.cookies.get({});
+  if (gameView !== view || view.webContents.isDestroyed()) return;
   const dmmCookies = cookies.filter(isDmmCookie).map(serializeCookie);
+  const snapshot = values => JSON.stringify(values.map(cookie => JSON.stringify(serializeCookie(cookie))).sort());
+  if (snapshot(dmmCookies) === snapshot(currentConfig.session.cookies || [])) return;
+  store.save({ ...currentConfig, session: { ...currentConfig.session, cookies: dmmCookies } });
   currentConfig.session.cookies = dmmCookies;
-  store.save(currentConfig);
   debugLog('auth-cookies-saved', { count: dmmCookies.length });
 }
 
@@ -1937,7 +1970,14 @@ async function primeGameNewsDetails(items, force = false) {
   if (items === gameNewsCache.items) saveGameNewsDiskCache();
 }
 
-async function pingTarget(targetKey) {
+function pingTarget(targetKey) {
+  if (networkProbeTasks.has(targetKey)) return networkProbeTasks.get(targetKey);
+  const task = probeTarget(targetKey).finally(() => networkProbeTasks.delete(targetKey));
+  networkProbeTasks.set(targetKey, task);
+  return task;
+}
+
+async function probeTarget(targetKey) {
   const target = NETWORK_TARGETS[targetKey];
   if (!target) return { ok: false, error: 'Unknown target.' };
   const started = Date.now();
@@ -1952,17 +1992,20 @@ async function pingTarget(targetKey) {
         signal: controller.signal,
         headers: { Range: 'bytes=0-0' },
       });
-      clearTimeout(timeout);
+      const elapsed = Date.now() - started;
+      if (response.body) await response.body.cancel().catch(() => {});
       return {
         ok: response.status > 0 && response.status < 600,
         label: target.label,
-        ms: Date.now() - started,
+        ms: elapsed,
         status: response.status,
         error: '',
       };
     } catch (error) {
-      clearTimeout(timeout);
       lastError = error && error.message ? error.message : String(error);
+    } finally {
+      controller.abort();
+      clearTimeout(timeout);
     }
   }
   return {
@@ -1974,7 +2017,13 @@ async function pingTarget(targetKey) {
   };
 }
 
-async function getNetworkStatus() {
+function getNetworkStatus() {
+  if (networkStatusTask) return networkStatusTask;
+  networkStatusTask = readNetworkStatus().finally(() => { networkStatusTask = null; });
+  return networkStatusTask;
+}
+
+async function readNetworkStatus() {
   const snapshot = {
     ip: '',
     country: '',
@@ -3044,8 +3093,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   stopGameClicker(true);
   stopAnonymousUsageForWindow();
-  if (quitAfterFlush || !gameView || gameView.webContents.isDestroyed()) return;
+  if (quitAfterFlush) return;
   event.preventDefault();
   quitAfterFlush = true;
-  flushSessionData('before-quit').finally(() => app.quit());
+  flushSessionData('before-quit').finally(() => flushDebugLog()).finally(() => app.quit());
 });

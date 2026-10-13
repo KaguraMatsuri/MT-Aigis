@@ -121,8 +121,9 @@ test('reports a failed post-clear size query without creating a false zero cache
 test('uses the existing read-failure UI and displays a genuine zero result after recovery', async () => {
   let failing = true;
   const h = harness({ async getCacheSize() { if (failing) throw new Error('fixture failure'); return 0; } });
-  const field = { textContent: 'previous' };
+  const field = { textContent: 'previous', classList: { contains: () => true } };
   const context = vm.createContext({
+    document: { visibilityState: 'visible', body: { classList: { contains: () => false } } },
     sidebarScrolling: false, byId() { return field; }, t(key) { return key; },
     formatBytes(value) { return String(value); },
     api: { invoke(_channel, force) { return h.context.getCacheStats(force); } },
