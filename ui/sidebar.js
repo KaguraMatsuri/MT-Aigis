@@ -18,7 +18,6 @@
   var sidebarScrolling = false;
   var sidebarScrollIdleTimer = null;
   var customUrlEditing = false;
-  var clipboardClearTimer = null;
   var cookieConfirmTimer = null;
   var currentLanguage = 'zh';
   var telemetryState = null;
@@ -1157,13 +1156,6 @@
     if (!vaultState || !vaultState.exists) return loadVaultEditor();
     api.invoke('vault:copy', field).then(function () {
       setVaultMessage(t('copied'), false);
-      if (field === 'password') {
-        if (clipboardClearTimer) clearTimeout(clipboardClearTimer);
-        clipboardClearTimer = setTimeout(function () {
-          api.invoke('clipboard:write', '');
-          clipboardClearTimer = null;
-        }, 60000);
-      }
       setTimeout(function () { setVaultMessage('', false); }, 1200);
     }).catch(function (error) {
       setVaultMessage(errorText(error), true);

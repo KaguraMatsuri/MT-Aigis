@@ -221,11 +221,11 @@ test('coalesces repeated UI probe clicks before IPC and allows retries after rej
 
 function logHarness(options = {}) {
   const files = new Map(), counts = { stat: 0, append: 0, rename: 0 };
-  const timers = new Map();
+  const timers = new Map(), consoleLines = [];
   if (options.initial) files.set('/virtual/debug.log', options.initial);
   const context = vm.createContext({
     DEBUG_LOG: '/virtual/debug.log', debugLogTask: Promise.resolve(), debugLogSize: null,
-    Buffer, Date, console: { log() {} },
+    Buffer, Date, URL, console: { log(...parts) { consoleLines.push(parts.join(' ')); } },
     setTimeout(callback, delay) { timers.set(callback, delay); return callback; },
     clearTimeout(timer) { timers.delete(timer); },
     fs: { promises: {
@@ -238,8 +238,25 @@ function logHarness(options = {}) {
     } },
   });
   vm.runInContext(section(main, 'function debugLog(', 'function loadGameNewsDiskCache('), context);
-  return { context, counts, files, timers };
+  return { context, counts, files, timers, consoleLines };
 }
+
+test('removes URL credentials, query strings and fragments from file and console logs', async () => {
+  const h = logHarness();
+  h.context.debugLog('game-frame-adapter', {
+    href: 'https://fixture-user:fixture-password@osapi.dmm.com/gadgets/ifr?st=fixture-session#rpctoken=fixture-rpc',
+    nested: { url: 'https://example.test/path?token=fixture-other' },
+  });
+  h.context.debugLog('failed at https://example.test/login?code=fixture-code#fixture-hash');
+  await h.context.flushDebugLog();
+  for (const output of [h.files.get('/virtual/debug.log'), h.consoleLines.join('\n')]) {
+    assert.match(output, /https:\/\/osapi\.dmm\.com\/gadgets\/ifr/);
+    assert.match(output, /https:\/\/example\.test\/path/);
+    for (const secret of ['fixture-user', 'fixture-password', 'fixture-session', 'fixture-rpc', 'fixture-other', 'fixture-code', 'fixture-hash']) {
+      assert.equal(output.includes(secret), false, secret);
+    }
+  }
+});
 
 test('writes logs asynchronously in order with a single initial file-size query', async () => {
   const gate = deferred(), h = logHarness({ beforeWrite: () => gate.promise });

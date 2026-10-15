@@ -26,6 +26,7 @@ const {
 const {
   DEFAULT_URL,
   isAdaptedPage,
+  isSafeExternalUrl,
   isWebUrl,
   normalizeCustomUrl,
 } = require('./lib/navigation');
@@ -233,7 +234,6 @@ const APP_TEXT = {
   },
 };
 
-app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-translate');
 app.commandLine.appendSwitch('disable-sync');
 app.commandLine.appendSwitch('disable-component-update');
@@ -288,6 +288,7 @@ let clickerWarningAbort = null;
 let clickerWarningRespond = null;
 let navigationMode = 'boot';
 let sessionFlushTimer = null;
+let clipboardClearTimer = null;
 let gameContentReady = false;
 let gameContentSize = null;
 let gameContentEpoch = 0;
@@ -339,10 +340,19 @@ log.initialize();
 loadGameNewsDiskCache();
 
 function debugLog(...parts) {
-  const line = `[${new Date().toISOString()}] ${parts.map((part) => {
-    if (typeof part === 'string') return part;
-    try { return JSON.stringify(part); } catch { return String(part); }
-  }).join(' ')}\n`;
+  const safeParts = parts.map((part) => {
+    let text;
+    try { text = typeof part === 'string' ? part : JSON.stringify(part); } catch { text = String(part); }
+    return String(text).replace(/\bhttps?:\/\/[^\s"'<>\\]+/gi, (url) => {
+      try {
+        const parsed = new URL(url);
+        return `${parsed.origin}${parsed.pathname}`;
+      } catch {
+        return '';
+      }
+    });
+  });
+  const line = `[${new Date().toISOString()}] ${safeParts.join(' ')}\n`;
   debugLogTask = debugLogTask.then(async () => {
     if (debugLogSize === null) {
       debugLogSize = await fs.promises.stat(DEBUG_LOG).then(stat => stat.size).catch(() => 0);
@@ -356,7 +366,7 @@ function debugLog(...parts) {
     await fs.promises.appendFile(DEBUG_LOG, line);
     debugLogSize += Buffer.byteLength(line);
   }).catch(() => { debugLogSize = null; });
-  console.log('[MT-Aigis]', ...parts);
+  console.log('[MT-Aigis]', ...safeParts);
 }
 
 async function flushDebugLog() {
@@ -1562,7 +1572,7 @@ function attachNavigationHandlers() {
     const normalized = normalizeUrl(url);
     if (isInternalUrl(normalized)) {
       setImmediate(() => gameView.webContents.loadURL(normalized).catch(() => {}));
-    } else {
+    } else if (isSafeExternalUrl(normalized)) {
       shell.openExternal(normalized).catch(() => {});
     }
     return { action: 'deny' };
@@ -1577,7 +1587,7 @@ function attachNavigationHandlers() {
     }
     if (isInternalUrl(url) || (currentConfig.view.customUrl && isWebUrl(url))) return;
     event.preventDefault();
-    shell.openExternal(url).catch(() => {});
+    if (isSafeExternalUrl(url)) shell.openExternal(url).catch(() => {});
   });
 
   gameView.webContents.on('did-navigate', (_, url) => {
@@ -1597,7 +1607,7 @@ function attachNavigationHandlers() {
   });
 
   gameView.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (!isMainFrame) return;
+    if (!isMainFrame && !isPlayableGameFrame(validatedURL) && !isGameContainerFrame(validatedURL)) return;
     debugLog('did-fail-load', { errorCode, errorDescription, validatedURL });
     if (errorCode === -3) return;
     gameViewLoadingMasked = false;
@@ -1622,7 +1632,9 @@ function normalizeUrl(rawUrl) {
 
 function isInternalUrl(rawUrl) {
   try {
-    const host = new URL(rawUrl).hostname.toLowerCase();
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
     return ALLOWED_HOST_PARTS.some((part) => host === part || host.endsWith(`.${part}`));
   } catch {
     return false;
@@ -2841,9 +2853,26 @@ ipcMain.handle('update:respond', (event, action) => {
   return resolveUpdatePrompt(action);
 });
 
-ipcMain.handle('copy:text', (_, value) => {
-  clipboard.writeText(String(value || ''));
+function writeClipboardText(text, clearPassword = false) {
+  if (clipboardClearTimer) clearTimeout(clipboardClearTimer);
+  clipboardClearTimer = null;
+  clipboard.writeText(text);
+  if (clearPassword && text) {
+    clipboardClearTimer = setTimeout(() => {
+      clipboardClearTimer = null;
+      try {
+        if (clipboard.readText() === text) clipboard.writeText('');
+      } catch (error) {
+        debugLog('clipboard-clear-error', error && (error.code || error.name) || 'Error');
+      }
+    }, 60000);
+    clipboardClearTimer.unref?.();
+  }
   return true;
+}
+
+ipcMain.handle('copy:text', (_, value) => {
+  return writeClipboardText(String(value || ''));
 });
 
 ipcMain.handle('config:get', () => {
@@ -2976,8 +3005,7 @@ ipcMain.handle('vault:copy', (_, field) => {
   else if (field === 'password') value = data.password;
   else if (field === 'twofa') value = currentTotp(data.twofa);
   else throw new Error('Unknown vault field.');
-  clipboard.writeText(String(value || ''));
-  return true;
+  return writeClipboardText(String(value || ''), field === 'password');
 });
 
 function assertTrustedAutofillFrame(event) {
@@ -3015,8 +3043,7 @@ ipcMain.handle('autofill:fill', (event, payload) => {
 });
 
 ipcMain.handle('clipboard:write', (_, value) => {
-  clipboard.writeText(value || '');
-  return true;
+  return writeClipboardText(value || '');
 });
 
 ipcMain.handle('sidebar:toggle', async (_, state) => {
