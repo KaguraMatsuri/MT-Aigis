@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -94,6 +95,47 @@ test('publishes an absolute update URL for legacy clients', () => {
   assert.match(prepared, /url: https:\/\/github\.com\/KaguraMatsuri\/MT-Aigis\/releases\/latest\/download\/MT-Aigis-1\.1\.0-arm64\.zip/);
   assert.match(prepared, /path: MT-Aigis-1\.1\.0-arm64\.zip/);
   assert.equal(prepareManifest(prepared), prepared);
+});
+
+test('generates the macOS update manifest without an electron-updater runtime dependency', async (t) => {
+  const { createUpdateInfoTasks, writeUpdateInfoFiles } = require('app-builder-lib/out/publish/updateInfoBuilder');
+  const { Platform } = require('app-builder-lib/out/core');
+  const { Arch } = require('builder-util');
+  const { parseReleaseManifest } = require('../scripts/verify-release-artifacts');
+  const prepareManifest = require('../scripts/prepare-release-manifest');
+  const packageJson = JSON.parse(read('package.json'));
+  assert.equal(packageJson.dependencies['electron-updater'], undefined);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mtaigis-update-metadata-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const published = [];
+  const packager = {
+    platform: Platform.MAC, config: packageJson.build,
+    platformSpecificBuildOptions: packageJson.build.mac,
+    appInfo: { version: packageJson.version },
+    info: { metadata: packageJson },
+    async getResource() { return null; },
+  };
+  const tasks = [];
+  for (const extension of ['dmg', 'zip']) {
+    const file = path.join(directory, `MT-Aigis-${packageJson.version}-arm64.${extension}`);
+    const fixture = Buffer.from(`fixture ${extension}`);
+    fs.writeFileSync(file, fixture);
+    tasks.push(...await createUpdateInfoTasks({
+      packager, arch: Arch.arm64, file, target: { outDir: directory },
+      updateInfo: { size: fixture.length, sha512: crypto.createHash('sha512').update(fixture).digest('base64') },
+    }, packageJson.build.publish));
+  }
+  await writeUpdateInfoFiles(tasks, { async emitArtifactCreated(event) { published.push(event.file); } });
+  const manifestPath = path.join(directory, 'latest-mac.yml');
+  assert.deepEqual(published, [manifestPath]);
+  const manifest = parseReleaseManifest(prepareManifest(fs.readFileSync(manifestPath, 'utf8')));
+  assert.equal(manifest.version, packageJson.version);
+  assert.equal(manifest.files.length, 2);
+  for (const asset of manifest.files) {
+    assert.ok(asset.url.startsWith(packageJson.build.publish[0].url + '/'));
+    assert.ok(asset.size > 0);
+    assert.equal(Buffer.from(asset.sha512, 'base64').length, 64);
+  }
 });
 
 test('publishes only a complete release for the package-matched tag', () => {
