@@ -123,14 +123,138 @@ test('invalidates an unauthenticated key and recovers both configuration formats
   }
 });
 
-test('uses the recovered key on a save following a failed configuration read', () => {
+test('blocks saves after a failed read until the original configuration has been loaded successfully', () => {
   const h = configKeyFixture('darwin', false);
   h.store.load();
   h.recoverKey();
+  assert.throws(() => h.store.save({ fixture: 'defaults must not replace original' }));
+  assert.deepEqual(h.readConfig(), h.original);
+  assert.equal(h.store.getStatus().healthy, false);
+  assert.equal(h.keyReads, 1);
+  assert.equal(h.store.load().fixture, 'original');
   h.store.save({ fixture: 'saved after recovery' });
   assert.equal(h.keyReads, 2);
   assert.equal(h.restart().load().fixture, 'saved after recovery');
   assert.equal(h.keyReads, 3);
+});
+
+test('never creates or replaces a key when the existing configuration cannot be unlocked', () => {
+  for (const status of [44, 36, 51]) {
+    const disk = new Map(), calls = [];
+    const fakeFs = {
+      mkdirSync() {}, chmodSync() {},
+      existsSync(file) { return disk.has(file); },
+      readFileSync(file) { return Buffer.from(disk.get(file)); },
+      writeFileSync(file, data) { disk.set(file, data); },
+      renameSync(from, to) { disk.set(to, disk.get(from)); disk.delete(from); },
+    };
+    const failure = Object.assign(new Error('fixture keychain unavailable'), { status });
+    const exports = loadWithFs('lib/secure-config.js', fakeFs, {
+      process: { platform: 'darwin' },
+      require(name) {
+        if (name === 'fs') return fakeFs;
+        if (name === 'child_process') return { execFileSync(_command, args) {
+          calls.push(args);
+          if (args[0] === 'find-generic-password') throw failure;
+          return '';
+        } };
+        return require(name);
+      },
+    });
+    const original = Buffer.from(JSON.stringify(exports.encryptEnvelope(
+      Buffer.from('{"fixture":"original"}'), Buffer.alloc(32, 3),
+    )));
+    disk.set('/virtual/config/config.enc', original);
+    const store = new exports.SecureConfigStore('/virtual/config');
+    store.load();
+    assert.equal(store.getStatus().healthy, false);
+    assert.throws(() => store.save({ fixture: 'replacement' }));
+    assert.ok(calls.every(args => args[0] === 'find-generic-password'));
+    assert.equal(disk.has('/virtual/config/master.key'), false);
+    assert.deepEqual(disk.get('/virtual/config/config.enc'), original);
+  }
+});
+
+test('uses an existing local fallback key without creating a replacement keychain entry', () => {
+  const key = Buffer.alloc(32, 5), disk = new Map(), calls = [];
+  const fakeFs = {
+    mkdirSync() {}, chmodSync() {}, existsSync(file) { return disk.has(file); },
+    readFileSync(file) { return Buffer.from(disk.get(file)); },
+  };
+  const exports = loadWithFs('lib/secure-config.js', fakeFs, {
+    process: { platform: 'darwin' },
+    require(name) {
+      if (name === 'fs') return fakeFs;
+      if (name === 'child_process') return { execFileSync(_command, args) {
+        calls.push(args);
+        throw Object.assign(new Error('fixture keychain unavailable'), { status: 36 });
+      } };
+      return require(name);
+    },
+  });
+  disk.set('/virtual/config/master.key', key);
+  disk.set('/virtual/config/config.enc', Buffer.from(JSON.stringify(exports.encryptEnvelope(
+    Buffer.from('{"fixture":"original"}'), key,
+  ))));
+  const store = new exports.SecureConfigStore('/virtual/config');
+  assert.equal(store.load().fixture, 'original');
+  assert.equal(store.getStatus().healthy, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'find-generic-password');
+});
+
+test('creates a first-run key only for a missing keychain item, without updating an existing item', () => {
+  for (const status of [44, 36]) {
+    const disk = new Map(), calls = [];
+    let keychainKey = null;
+    const fakeFs = {
+      mkdirSync() {}, chmodSync() {}, existsSync(file) { return disk.has(file); },
+      readFileSync(file) { return Buffer.from(disk.get(file)); },
+      writeFileSync(file, data) { disk.set(file, data); },
+      renameSync(from, to) { disk.set(to, disk.get(from)); disk.delete(from); },
+    };
+    const exports = loadWithFs('lib/secure-config.js', fakeFs, {
+      process: { platform: 'darwin' },
+      require(name) {
+        if (name === 'fs') return fakeFs;
+        if (name === 'child_process') return { execFileSync(_command, args) {
+          calls.push(args);
+          if (args[0] === 'find-generic-password') {
+            if (keychainKey) return keychainKey;
+            throw Object.assign(new Error('fixture keychain lookup'), { status });
+          }
+          assert.equal(args[0], 'add-generic-password');
+          assert.equal(args.includes('-U'), false);
+          keychainKey = args[args.indexOf('-w') + 1];
+          return '';
+        } };
+        return require(name);
+      },
+    });
+    const store = new exports.SecureConfigStore('/virtual/config');
+    store.save({ fixture: 'first run' });
+    assert.equal(store.load().fixture, 'first run');
+    assert.equal(calls.filter(args => args[0] === 'add-generic-password').length, status === 44 ? 1 : 0);
+    assert.equal(disk.has('/virtual/config/master.key'), status !== 44);
+  }
+});
+
+test('cookie persistence preserves an unreadable configuration even after the key becomes available', async () => {
+  const h = configKeyFixture('darwin', false);
+  const currentConfig = h.store.load();
+  h.recoverKey();
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const start = main.indexOf('function isDmmCookie(');
+  const context = vm.createContext({
+    currentConfig, store: h.store, debugLog() {},
+    gameView: { webContents: { isDestroyed: () => false, session: { cookies: {
+      get: async () => [{ name: 'fixture', value: 'synthetic', domain: '.dmm.com' }],
+    } } } },
+  });
+  vm.runInContext(main.slice(start, main.indexOf('async function restoreAuthCookies(', start)), context);
+  await assert.rejects(context.persistAuthCookies());
+  assert.deepEqual(h.readConfig(), h.original);
+  assert.equal(h.store.load().fixture, 'original');
 });
 
 test('rejects unsupported configuration envelopes before requesting a key', () => {
