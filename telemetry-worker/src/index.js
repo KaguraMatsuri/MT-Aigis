@@ -45,8 +45,25 @@ async function parseInstallationHash(request) {
     return null;
   }
 
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_HEARTBEAT_BODY_BYTES) return null;
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '', receivedBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > MAX_HEARTBEAT_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
 
   let payload;
   try {

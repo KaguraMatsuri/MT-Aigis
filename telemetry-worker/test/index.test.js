@@ -160,6 +160,48 @@ test('records a valid heartbeat atomically, then returns current statistics', as
   assert.deepEqual(db.batchCalls[1][2].bindings, [Math.floor(FIXED_NOW / 1000) - 720]);
 });
 
+test('stops an oversized streaming heartbeat before reading its entire body', async () => {
+  for (const declaredLength of [undefined, '1']) {
+    const db = createD1Mock();
+    let chunks = 0, cancelled = false;
+    const body = new ReadableStream({
+      pull(controller) {
+        if (chunks === 128) return controller.close();
+        chunks++;
+        controller.enqueue(new Uint8Array(1024).fill(32));
+      },
+      cancel() { cancelled = true; },
+    });
+    const headers = { 'content-type': 'application/json' };
+    if (declaredLength) headers['content-length'] = declaredLength;
+    const response = await worker.fetch(new Request('https://telemetry.example/v1/heartbeat', {
+      method: 'POST', headers, body, duplex: 'half',
+    }), { DB: db.DB });
+    assert.equal(response.status, 400);
+    assert.ok(chunks <= 2, `consumed ${chunks} chunks`);
+    assert.equal(cancelled, true);
+    assert.equal(db.prepared.length, 0);
+  }
+});
+
+test('preserves UTF-8 split across chunks and enforces the heartbeat byte boundary', async () => {
+  const base = JSON.stringify({ installationHash: INSTALLATION_HASH, padding: '中' });
+  for (const size of [255, 256, 257]) {
+    const bytes = new TextEncoder().encode(base + ' '.repeat(size - new TextEncoder().encode(base).length));
+    let offset = 0;
+    const body = new ReadableStream({ pull(controller) {
+      if (offset === bytes.length) return controller.close();
+      controller.enqueue(bytes.slice(offset, ++offset));
+    } });
+    const db = createD1Mock([[], statsBatchResults()]);
+    const response = await worker.fetch(new Request('https://telemetry.example/v1/heartbeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body, duplex: 'half',
+    }), { DB: db.DB });
+    assert.equal(response.status, size <= 256 ? 200 : 400);
+    assert.equal(db.batchCalls.length, size <= 256 ? 2 : 0);
+  }
+});
+
 test('GET /v1/stats exposes the documented aggregate fields', async () => {
   const db = createD1Mock([statsBatchResults(8, 5, 3)]);
 
