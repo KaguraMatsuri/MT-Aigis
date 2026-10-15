@@ -266,6 +266,7 @@ test('applies separate timeouts to IP and region queries and returns the availab
   const signals = [];
   const context = vm.createContext({
     CHROME_UA: 'fixture',
+    networkStatusTask: null,
     AbortSignal: { timeout(delay) { assert.equal(delay, 8000); const signal = new AbortController().signal; signals.push(signal); return signal; } },
     async fetchThroughGameSession(url, options) {
       assert.ok(options.signal);
@@ -273,7 +274,7 @@ test('applies separate timeouts to IP and region queries and returns the availab
       throw new Error('fixture region timeout');
     },
   });
-  vm.runInContext(section('async function getNetworkStatus(', 'function sendToRenderer('), context);
+  vm.runInContext(section('function getNetworkStatus(', 'function getPublicClickerState('), context);
   const status = await context.getNetworkStatus();
   assert.equal(status.ip, '192.0.2.1');
   assert.equal(status.countryCode, '');
