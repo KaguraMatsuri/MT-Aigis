@@ -212,6 +212,7 @@ button:disabled {
   #sidebar,
   #sidebar::before,
   .sidebar-content,
+  .game-actions,
   .sidebar-toggle-glyph {
     transition: none !important;
   }
@@ -1051,15 +1052,23 @@ select {
   position: fixed;
   z-index: 30;
   left: 18px;
+  right: calc(var(--sidebar-width) + 18px);
   bottom: 12px;
   display: flex;
   gap: 12px;
+  transition: right var(--sidebar-transition-duration) var(--sidebar-transition-easing);
+}
+
+body.sidebar-collapsed .game-actions {
+  right: calc(var(--sidebar-collapsed-width) + 18px);
 }
 
 .game-actions [hidden] { display: none; }
 
 .volume-control {
   display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
   align-items: center;
   gap: 8px;
   height: 38px;
