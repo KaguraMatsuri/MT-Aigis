@@ -30,17 +30,17 @@ test('uses the official compiled macOS Icon asset', () => {
   assert.match(afterPack, /CFBundleIconName', '-string', 'Icon'/);
 });
 
-test('keeps the 1.3.0 display and bundle version aligned', () => {
+test('keeps the 1.4.0 display and bundle version aligned', () => {
   const packageJson = JSON.parse(read('package.json'));
 
-  assert.equal(packageJson.version, '1.3.0');
+  assert.equal(packageJson.version, '1.4.0');
   const lock = JSON.parse(read('package-lock.json'));
   assert.equal(lock.version, packageJson.version);
   assert.equal(lock.packages[''].version, packageJson.version);
-  assert.equal(packageJson.build.mac.bundleVersion, '1.3.0');
-  assert.match(read('main.js'), /APP_DISPLAY_VERSION = '1\.3\.0'/);
-  assert.match(read('ui/index.html'), /about-version">1\.3\.0</);
-  assert.match(read('ui/about.html'), /version-value">1\.3\.0</);
+  assert.equal(packageJson.build.mac.bundleVersion, '1.4.0');
+  assert.match(read('main.js'), /APP_DISPLAY_VERSION = '1\.4\.0'/);
+  assert.match(read('ui/index.html'), /about-version">1\.4\.0</);
+  assert.match(read('ui/about.html'), /version-value">1\.4\.0</);
 });
 
 test('keeps the QQ contact aligned across both about views', () => {
