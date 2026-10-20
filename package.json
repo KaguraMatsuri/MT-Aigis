@@ -1,7 +1,7 @@
 {
   "name": "mt-aigis",
   "version": "1.3.0",
-  "author": "No.zomu",
+  "author": "No.zomu (KaguraMatsuri)",
   "license": "MIT",
   "description": "千年战争Aigis macOS Client",
   "main": "main.js",
@@ -20,6 +20,12 @@
   "build": {
     "appId": "com.matsuri.mt-aigis",
     "productName": "MT-Aigis",
+    "extraMetadata": {
+      "author": {
+        "name": "No.zomu (KaguraMatsuri)",
+        "url": null
+      }
+    },
     "artifactName": "MT-Aigis-${version}-${arch}.${ext}",
     "asar": true,
     "afterPack": "scripts/after-pack.js",

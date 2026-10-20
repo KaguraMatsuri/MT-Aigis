@@ -21,7 +21,7 @@ function mainHarness(options = {}) {
   const saved = [];
   const calls = { preferred: 0, locale: 0, menu: 0, about: 0 };
   const context = vm.createContext({
-    AUTHOR_NAME: 'No.zomu',
+    AUTHOR_NAME: 'No.zomu (KaguraMatsuri)',
     currentConfig: { view: { language: options.language || 'auto' } },
     app: {
       getPreferredSystemLanguages() {
@@ -172,13 +172,14 @@ test('renders the Traditional Chinese About window using the existing query para
   vm.runInNewContext(source, {
     URLSearchParams,
     document,
-    location: { search: '?lang=zh-Hant&version=1.2.0&author=No.zomu' },
+    location: { search: '?lang=zh-Hant&version=1.2.0&author=' + encodeURIComponent('No.zomu (KaguraMatsuri)') },
     window: {},
   });
   assert.equal(document.documentElement.lang, 'zh-Hant');
   assert.equal(document.title, '關於 MT-Aigis');
   assert.equal(nodes.get('contact-label').textContent, '聯絡方式');
   assert.equal(nodes.get('version-value').textContent, '1.2.0');
+  assert.equal(nodes.get('author-value').textContent, 'No.zomu (KaguraMatsuri)');
 });
 
 test('keeps Traditional Chinese through overlay state updates and rendering', () => {
