@@ -1071,6 +1071,35 @@ select {
 
 .clicker-cps-control { margin: 12px 0 0; }
 .clicker-cps-control output { color: var(--muted); font-size: 10px; }
+
+#clicker-setting-label,
+#btn-story-skip,
+.clicker-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keyboard-icon { display: none; }
+.has-keyboard-icon .keyboard-icon {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 14px;
+  background-color: currentColor;
+  mask: var(--keyboard-icon) center / contain no-repeat;
+  pointer-events: none;
+}
+
+.clicker-key-control { position: relative; min-width: 0; }
+.clicker-key-control .keyboard-icon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+}
+.has-keyboard-icon #clicker-key { padding-left: 34px; }
+
 #clicker-enabled {
   width: 20px;
   height: 20px;

@@ -4,6 +4,11 @@
   var api = window.mtAigis;
   if (!api) return;
 
+  if (api.keyboardIcon) {
+    document.documentElement.style.setProperty('--keyboard-icon', 'url("' + api.keyboardIcon + '")');
+    document.documentElement.classList.add('has-keyboard-icon');
+  }
+
   var vaultState = null;
   var gameNewsState = null;
   var currentGameNewsUrl = '';
@@ -944,9 +949,12 @@
     button.hidden = !state.enabled;
     button.disabled = !state.available;
     var keyLabel = (state.keyCode || 'KeyB').replace(/^(Key|Digit)/, '');
-    button.textContent = button.title = '跳过剧情[' + keyLabel + ']';
+    button.title = '跳过剧情[' + keyLabel + ']';
+    button.setAttribute('aria-label', button.title);
     button.setAttribute('aria-keyshortcuts', keyLabel);
-    byId('clicker-setting-label').textContent = button.textContent;
+    byId('story-skip-key').textContent = keyLabel;
+    byId('clicker-setting-key').textContent = keyLabel;
+    byId('clicker-setting-label').setAttribute('aria-label', button.title);
     byId('clicker-key').value = keyLabel;
     byId('clicker-enabled').checked = !!state.enabled;
     if (!clickerCpsEditing || applyCps) {

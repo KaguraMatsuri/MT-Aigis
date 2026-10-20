@@ -12,6 +12,32 @@ const sidebar = fs.readFileSync(path.join(root, 'ui/sidebar.js'), 'utf8');
 const clicker = fs.readFileSync(path.join(root, 'resources/game-clicker.js'), 'utf8');
 const driverFixture = fs.readFileSync(path.join(root, 'test/game-clicker.test.js'), 'utf8');
 
+test('loads the native keyboard symbol once and preserves the bridge when the symbol is unavailable', () => {
+  const source = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
+  for (const mode of ['available', 'empty', 'error', 'other-platform']) {
+    let api, reads = 0;
+    const requests = [];
+    vm.runInNewContext(source, {
+      process: { platform: mode === 'other-platform' ? 'linux' : 'darwin' },
+      require() { return {
+        contextBridge: { exposeInMainWorld(name, value) { assert.equal(name, 'mtAigis'); api = value; } },
+        ipcRenderer: { invoke(...args) { requests.push(args); } },
+        nativeImage: { createFromNamedImage(name) {
+          reads++;
+          assert.equal(name, 'keyboard');
+          if (mode === 'error') throw new Error('fixture unavailable symbol');
+          return { isEmpty() { return mode === 'empty'; }, toDataURL() { return 'data:image/png;base64,fixture'; } };
+        } },
+      }; },
+    });
+    assert.equal(api.keyboardIcon, mode === 'available' ? 'data:image/png;base64,fixture' : '');
+    api.invoke('clicker:settings', { keyCode: 'F12' });
+    assert.equal(requests[0][0], 'clicker:settings');
+    assert.equal(requests[0][1].keyCode, 'F12');
+    assert.equal(reads, mode === 'other-platform' ? 0 : 1);
+  }
+});
+
 function section(source, start, end) {
   const first = source.indexOf(start), last = source.indexOf(end, first);
   assert.ok(first >= 0 && last > first);
@@ -447,8 +473,11 @@ test('captures one key, saves immediately, updates displayed bindings, and exits
     assert.equal(u.requests[0].channel, 'clicker:settings');
     assert.equal(u.requests[0].value.keyCode, keyCode);
     const label = keyCode.replace(/^(Key|Digit)/, '');
-    assert.equal(u.node('btn-story-skip').textContent, '跳过剧情[' + label + ']');
-    assert.equal(u.node('clicker-setting-label').textContent, '跳过剧情[' + label + ']');
+    assert.equal(u.node('story-skip-key').textContent, label);
+    assert.equal(u.node('clicker-setting-key').textContent, label);
+    assert.equal(u.node('btn-story-skip').title, '跳过剧情[' + label + ']');
+    assert.equal(u.node('btn-story-skip').attributes['aria-label'], '跳过剧情[' + label + ']');
+    assert.equal(u.node('clicker-setting-label').attributes['aria-label'], '跳过剧情[' + label + ']');
     assert.equal(u.node('btn-story-skip').attributes['aria-keyshortcuts'], label);
     assert.equal(u.node('clicker-key').value, label);
     assert.ok(!n.calls.some(code => code.includes('Held(true)')));
@@ -483,7 +512,8 @@ test('uses the new UI binding and releases a held key when the saved binding cha
   u.context.renderClicker(await n.invoke('clicker:settings', { keyCode: 'Digit2' })); await n.turn();
   assert.equal(u.context.clickerUiKeyHeld, false);
   assert.equal(n.context.clickerPointerHeld, false);
-  assert.equal(u.node('btn-story-skip').textContent, '跳过剧情[2]');
+  assert.equal(u.node('story-skip-key').textContent, '2');
+  assert.equal(u.node('btn-story-skip').title, '跳过剧情[2]');
 });
 
 test('shows the existing pressed style immediately for UI keys and pointer holds until both sources release', async () => {
@@ -737,9 +767,12 @@ test('stops child-frame navigation using Electron navigation details and discard
 
 test('uses the approved button and settings labels, native slider bounds, and retains the mute control', () => {
   const html = fs.readFileSync(path.join(root, 'ui/index.html'), 'utf8');
-  assert.match(html, /id="btn-story-skip"[^>]*aria-keyshortcuts="B"[^>]*>跳过剧情\[B\]</);
+  assert.match(html, /id="btn-story-skip"[^>]*aria-label="跳过剧情\[B\]"[^>]*aria-keyshortcuts="B"[^>]*>跳过剧情<span/);
+  assert.match(html, /id="story-skip-key">B<\/span>/);
+  assert.match(html, /id="clicker-setting-key">B<\/span>/);
+  assert.equal((html.match(/class="keyboard-icon" aria-hidden="true"/g) || []).length, 3);
   assert.match(html, /id="clicker-cps"[^>]*min="1"[^>]*max="10"[^>]*step="1"[^>]*value="10"/);
   assert.match(html, /id="btn-mute"/);
-  assert.match(html, /for="clicker-enabled">跳过剧情\[B\]</);
+  assert.match(html, /for="clicker-enabled" aria-label="跳过剧情\[B\]">跳过剧情<span/);
   assert.match(html, /for="clicker-cps">CPS</);
 });
