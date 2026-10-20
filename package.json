@@ -14,7 +14,7 @@
     "dist:dir": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} PATH=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}/usr/bin:$PATH electron-builder --dir --mac --arm64 -c.mac.identity=null"
   },
   "devDependencies": {
-    "electron": "^42.4.1",
+    "electron": "^42.11.16",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -95,5 +95,10 @@
   },
   "dependencies": {
     "electron-log": "^5.4.4"
+  },
+  "overrides": {
+    "@electron/get@3": {
+      "global-agent": "4.1.3"
+    }
   }
 }
