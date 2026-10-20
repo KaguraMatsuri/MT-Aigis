@@ -8,6 +8,81 @@ function installGameAudio(initialVolume) {
   const active = new Set();
   const collected = new FinalizationRegistry(reference => active.delete(reference));
   let volume = Math.max(0, Math.min(100, Number(initialVolume) || 0));
+  const mediaLevels = new WeakMap();
+  const mediaReferences = new Set();
+  const collectedMedia = new FinalizationRegistry(reference => mediaReferences.delete(reference));
+  const Media = window.HTMLMediaElement;
+  const nativeVolume = Media && Object.getOwnPropertyDescriptor(Media.prototype, 'volume');
+
+  function applyMediaVolume(element, entry) {
+    entry.applied = entry.level * (entry.routed ? 1 : volume / 100);
+    nativeVolume.set.call(element, entry.applied);
+  }
+
+  function trackMedia(element) {
+    let entry = mediaLevels.get(element);
+    if (!entry) {
+      entry = { level: nativeVolume.get.call(element), routed: false };
+      mediaLevels.set(element, entry);
+      const reference = new WeakRef(element);
+      mediaReferences.add(reference);
+      collectedMedia.register(element, reference);
+    }
+    return entry;
+  }
+
+  if (nativeVolume) {
+    Object.defineProperty(Media.prototype, 'volume', {
+      ...nativeVolume,
+      get() {
+        const value = nativeVolume.get.call(this);
+        return mediaLevels.get(this)?.level ?? value;
+      },
+      set(value) {
+        nativeVolume.get.call(this); // Preserve the native receiver check.
+        const numeric = +value;
+        if (!Number.isFinite(numeric) || numeric < 0 || numeric > 1) {
+          return nativeVolume.set.call(this, numeric);
+        }
+        const entry = trackMedia(this);
+        entry.level = numeric;
+        applyMediaVolume(this, entry);
+      },
+    });
+    const nativePlay = Media.prototype.play;
+    Media.prototype.play = function (...args) {
+      applyMediaVolume(this, trackMedia(this));
+      return nativePlay.apply(this, args);
+    };
+    const nativeMediaSource = Context.prototype.createMediaElementSource;
+    Context.prototype.createMediaElementSource = function (...args) {
+      const source = nativeMediaSource.apply(this, args);
+      const entry = trackMedia(source.mediaElement);
+      entry.routed = true;
+      applyMediaVolume(source.mediaElement, entry);
+      return source;
+    };
+    function onMediaEvent(event) {
+      if (!(event.target instanceof Media)) return;
+      const element = event.target;
+      const entry = mediaLevels.get(element);
+      if (!entry) { applyMediaVolume(element, trackMedia(element)); return; }
+      const value = nativeVolume.get.call(element);
+      if (value !== entry.applied) {
+        entry.level = value;
+        applyMediaVolume(element, entry);
+      }
+    }
+    // Capture autoplay and native media controls without polling the document.
+    for (const event of ['loadstart', 'play', 'volumechange']) {
+      document.addEventListener(event, onMediaEvent, true);
+    }
+    function scanMedia() {
+      document.querySelectorAll('audio, video').forEach(element => applyMediaVolume(element, trackMedia(element)));
+    }
+    scanMedia();
+    document.addEventListener('DOMContentLoaded', scanMedia, { once: true });
+  }
 
   function master(context) {
     let entry = masters.get(context);
@@ -54,6 +129,11 @@ function installGameAudio(initialVolume) {
     setVolume(value) {
       if (!Number.isFinite(value) || value < 0 || value > 100) return false;
       volume = value;
+      for (const reference of mediaReferences) {
+        const element = reference.deref();
+        if (!element) { mediaReferences.delete(reference); continue; }
+        applyMediaVolume(element, mediaLevels.get(element));
+      }
       for (const reference of active) {
         const entry = reference.deref();
         if (!entry) { active.delete(reference); continue; }

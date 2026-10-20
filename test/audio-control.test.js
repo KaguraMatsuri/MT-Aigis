@@ -116,6 +116,98 @@ test('installs before page audio and rejects a stale initialization reply after 
   assert.equal(c.audio.gains[1].gain.targets.length, 1);
 });
 
+function mediaPage() {
+  const c = audioPage();
+  vm.runInContext(`
+    const levels = new WeakMap();
+    class HTMLMediaElement {
+      constructor() { levels.set(this, 1); this.muted = false; this.plays = 0; }
+      get volume() { if (!levels.has(this)) throw new TypeError('Invalid receiver'); return levels.get(this); }
+      set volume(value) {
+        if (!levels.has(this)) throw new TypeError('Invalid receiver');
+        const number = +value;
+        if (!Number.isFinite(number)) throw new TypeError('Non-finite volume');
+        if (number < 0 || number > 1) throw new RangeError('Volume out of bounds');
+        levels.set(this, number);
+      }
+      play() { this.plays++; return Promise.resolve('playing'); }
+    }
+    window.HTMLMediaElement = HTMLMediaElement;
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'volume');
+    window.nativeMediaVolume = element => descriptor.get.call(element);
+    window.nativeMediaSet = (element, value) => descriptor.set.call(element, value);
+    AudioContext.prototype.createMediaElementSource = function (element) {
+      const source = new AudioNode(this); source.mediaElement = element; return source;
+    };
+    window.mediaEvents = new Map(); window.mediaElements = [];
+    window.document = {
+      querySelectorAll() { return mediaElements; },
+      addEventListener(event, handler) { mediaEvents.set(event, handler); },
+    };
+  `, c);
+  return c;
+}
+
+test('scales existing and detached media while retaining game volume, mute and native validation', async () => {
+  const c = mediaPage();
+  vm.runInContext('window.music = new HTMLMediaElement(); music.volume = 0.8; music.muted = true; mediaElements.push(music);', c);
+  c.installGameAudio(50);
+  assert.equal(c.music.volume, 0.8);
+  assert.equal(c.nativeMediaVolume(c.music), 0.4);
+  assert.equal(c.music.muted, true);
+  vm.runInContext('window.voice = new HTMLMediaElement(); voice.volume = 0.6;', c);
+  assert.equal(await c.voice.play(), 'playing');
+  assert.equal(c.voice.plays, 1);
+  assert.equal(c.nativeMediaVolume(c.voice), 0.3);
+  for (let i = 0; i < 10; i++) c.__MT_GAME_AUDIO__.setVolume(25);
+  assert.equal(c.nativeMediaVolume(c.music), 0.2);
+  c.__MT_GAME_AUDIO__.setVolume(0); c.voice.volume = 0.2;
+  assert.equal(c.nativeMediaVolume(c.music), 0);
+  assert.equal(c.nativeMediaVolume(c.voice), 0);
+  assert.equal(c.voice.volume, 0.2);
+  for (const value of [NaN, Infinity, -0.1, 1.1]) assert.throws(() => { c.voice.volume = value; });
+  assert.throws(() => { c.voice.volume = 1n; });
+  c.__MT_GAME_AUDIO__.setVolume(100);
+  assert.equal(c.nativeMediaVolume(c.music), 0.8);
+  assert.equal(c.nativeMediaVolume(c.voice), 0.2);
+});
+
+test('tracks autoplay media and native volume changes without feeding back the scaled value', () => {
+  const c = mediaPage(); c.installGameAudio(25);
+  vm.runInContext('window.media = new HTMLMediaElement();', c);
+  c.mediaEvents.get('loadstart')({ target: c.media });
+  assert.equal(c.nativeMediaVolume(c.media), 0.25);
+  c.nativeMediaSet(c.media, 0.8);
+  c.mediaEvents.get('volumechange')({ target: c.media });
+  assert.equal(c.media.volume, 0.8);
+  assert.equal(c.nativeMediaVolume(c.media), 0.2);
+  c.mediaEvents.get('volumechange')({ target: c.media });
+  assert.equal(c.media.volume, 0.8);
+  assert.equal(c.nativeMediaVolume(c.media), 0.2);
+  vm.runInContext('window.late = new HTMLMediaElement(); mediaElements.push(late);', c);
+  c.mediaEvents.get('DOMContentLoaded')();
+  assert.equal(c.nativeMediaVolume(c.late), 0.25);
+});
+
+test('applies the master once when a media element is routed through Web Audio', () => {
+  const c = mediaPage(); c.installGameAudio(50);
+  vm.runInContext(`
+    window.media = new HTMLMediaElement(); media.volume = 0.8;
+    window.audio = new AudioContext();
+    window.source = audio.createMediaElementSource(media); source.connect(audio.destination);
+  `, c);
+  assert.equal(c.media.volume, 0.8);
+  assert.equal(c.nativeMediaVolume(c.media), 0.8);
+  assert.equal(c.audio.gains[0].gain.value, 0.5);
+  c.__MT_GAME_AUDIO__.setVolume(25);
+  assert.equal(c.nativeMediaVolume(c.media), 0.8);
+  assert.equal(c.audio.gains[0].gain.targets.at(-1).value, 0.25);
+  c.media.volume = 0.6;
+  assert.equal(c.nativeMediaVolume(c.media), 0.6);
+  c.installGameAudio(10);
+  assert.equal(c.nativeMediaVolume(c.media), 0.6);
+});
+
 function nativeAudio() {
   const handlers = new Map(), sent = [], saved = [];
   const frame = { isDestroyed: () => false, send: (channel, state) => sent.push({ channel, state }) };
