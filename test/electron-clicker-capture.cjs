@@ -1,6 +1,6 @@
 // Run with: electron test/electron-clicker-capture.cjs
 // Keyboard events target isolated hidden renderers, never the user's desktop.
-const { app, BrowserWindow, WebContentsView, ipcMain } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, nativeImage, nativeTheme } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -42,7 +42,7 @@ function finish(error) {
 
 app.whenReady().then(async () => {
   window = new BrowserWindow({ show: false, width: 1320, height: 760,
-    webPreferences: { preload: path.join(root, 'preload.js'), contextIsolation: true, sandbox: false, nodeIntegration: false } });
+    webPreferences: { preload: path.join(root, 'preload.js'), contextIsolation: true, sandbox: false, nodeIntegration: false, backgroundThrottling: false } });
   view = new WebContentsView({ webPreferences: { sandbox: true, backgroundThrottling: false } });
   window.contentView.addChildView(view);
   view.setBounds({ x: 0, y: 48, width: 960, height: 640 });
@@ -89,11 +89,24 @@ app.whenReady().then(async () => {
       windowsVirtualKeyCode: code.startsWith('F') ? 111 + Number(label.slice(1)) : label.charCodeAt(0), autoRepeat,
     });
   }
-  for (const code of ['KeyB', 'KeyC', 'Digit2', 'F12']) {
+  for (const code of ['KeyB', 'KeyC', 'Digit2', 'F12', 'KeyB']) {
     const before = await snapshot(); const heldBefore = holds.filter(Boolean).length;
     await window.webContents.executeJavaScript("byId('clicker-key').focus()");
     await key('rawKeyDown', code);
     await until(() => window.webContents.executeJavaScript(`clickerState.keyCode === '${code}'`));
+    const symbol = await window.webContents.executeJavaScript(`({
+      image: api.getKeyIcon('${code}'), value: byId('clicker-key').value,
+      iconDisplay: getComputedStyle(document.querySelector('.keyboard-icon')).display,
+      textDisplay: getComputedStyle(byId('story-skip-key')).display,
+      accessibleName: byId('btn-story-skip').getAttribute('aria-label')
+    })`);
+    const label = code.replace(/^(Key|Digit)/, '');
+    const expected = code === 'F12' ? '' : nativeImage.createFromNamedImage(label.toLowerCase() + '.square').toDataURL();
+    assert.equal(symbol.image, expected);
+    assert.equal(symbol.value, label);
+    assert.equal(symbol.accessibleName, '跳过剧情[' + label + ']');
+    assert.equal(symbol.iconDisplay === 'none', !expected);
+    assert.equal(symbol.textDisplay === 'none', !!expected);
     assert.equal(await window.webContents.executeJavaScript('document.activeElement.id'), 'clicker-key');
     await key('rawKeyDown', code, true);
     await key('rawKeyDown', code); // A late duplicate must also remain part of capture.
@@ -108,6 +121,14 @@ app.whenReady().then(async () => {
     const released = await snapshot(); await wait(150);
     assert.deepEqual(await snapshot(), released);
     console.log(JSON.stringify({ key: code, captureClicks: 0, nextPressClicks: released.down - before.down }));
+  }
+  for (const theme of ['light', 'dark']) {
+    nativeTheme.themeSource = theme;
+    await window.webContents.executeJavaScript(`document.getAnimations().forEach(animation => {
+      animation.pause(); animation.currentTime = 1000;
+    }); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    const image = await window.webContents.capturePage();
+    fs.writeFileSync(path.join(scratch, 'key-symbol-' + theme + '.png'), image.toPNG());
   }
   assert.deepEqual(await window.webContents.executeJavaScript('errors'), []);
 }).then(() => finish()).catch(finish);

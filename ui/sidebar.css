@@ -1094,7 +1094,7 @@ body.sidebar-collapsed .game-actions {
   display: inline-block;
   flex: none;
   width: 16px;
-  height: 14px;
+  height: 16px;
   background-color: currentColor;
   mask: var(--keyboard-icon) center / contain no-repeat;
   pointer-events: none;
@@ -1107,7 +1107,10 @@ body.sidebar-collapsed .game-actions {
   left: 10px;
   transform: translateY(-50%);
 }
-.has-keyboard-icon #clicker-key { padding-left: 34px; }
+.has-keyboard-icon #story-skip-key,
+.has-keyboard-icon #clicker-setting-key { display: none; }
+.has-keyboard-icon #clicker-key { color: transparent; }
+.has-keyboard-icon #clicker-key::selection { color: transparent; background: transparent; }
 
 #clicker-enabled {
   width: 20px;

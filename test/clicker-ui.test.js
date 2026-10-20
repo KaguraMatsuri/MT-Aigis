@@ -12,7 +12,7 @@ const sidebar = fs.readFileSync(path.join(root, 'ui/sidebar.js'), 'utf8');
 const clicker = fs.readFileSync(path.join(root, 'resources/game-clicker.js'), 'utf8');
 const driverFixture = fs.readFileSync(path.join(root, 'test/game-clicker.test.js'), 'utf8');
 
-test('loads the native keyboard symbol once and preserves the bridge when the symbol is unavailable', () => {
+test('caches native key symbols by binding and keeps text available for unsupported keys', () => {
   const source = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
   for (const mode of ['available', 'empty', 'error', 'other-platform']) {
     let api, reads = 0;
@@ -24,17 +24,22 @@ test('loads the native keyboard symbol once and preserves the bridge when the sy
         ipcRenderer: { invoke(...args) { requests.push(args); } },
         nativeImage: { createFromNamedImage(name) {
           reads++;
-          assert.equal(name, 'keyboard');
+          assert.ok(['b.square', '2.square'].includes(name));
           if (mode === 'error') throw new Error('fixture unavailable symbol');
           return { isEmpty() { return mode === 'empty'; }, toDataURL() { return 'data:image/png;base64,fixture'; } };
         } },
       }; },
     });
-    assert.equal(api.keyboardIcon, mode === 'available' ? 'data:image/png;base64,fixture' : '');
+    const expected = mode === 'available' ? 'data:image/png;base64,fixture' : '';
+    assert.equal(api.getKeyIcon('KeyB'), expected);
+    assert.equal(api.getKeyIcon('KeyB'), expected);
+    assert.equal(reads, mode === 'other-platform' ? 0 : 1);
+    assert.equal(api.getKeyIcon('Digit2'), expected);
+    for (const code of ['F12', 'KeyAA', 'Keyb', 'keyboard', undefined]) assert.equal(api.getKeyIcon(code), '');
     api.invoke('clicker:settings', { keyCode: 'F12' });
     assert.equal(requests[0][0], 'clicker:settings');
     assert.equal(requests[0][1].keyCode, 'F12');
-    assert.equal(reads, mode === 'other-platform' ? 0 : 1);
+    assert.equal(reads, mode === 'other-platform' ? 0 : 2);
   }
 });
 
@@ -150,6 +155,7 @@ function ui(n) {
     if (!nodes.has(id)) nodes.set(id, {
       hidden: false, disabled: false, value: '5', textContent: '', checked: true, listeners: new Map(),
       attributes: {},
+      style: { setProperty(name, value) { this[name] = value; } },
       classList: {
         values: new Set(),
         toggle(name, enabled) { if (enabled) this.values.add(name); else this.values.delete(name); },
@@ -167,13 +173,13 @@ function ui(n) {
   const context = vm.createContext({
     clickerState: null, clickerPointerHeld: false, clickerUiKeyHeld: false,
     clickerCpsEditing: false, clickerSettingsRevision: 0,
-    byId: node, document: { activeElement: { tagName: 'BODY' }, addEventListener(type, listener) { documentListeners.set(type, listener); } },
+    byId: node, document: { documentElement: node('root'), activeElement: { tagName: 'BODY' }, addEventListener(type, listener) { documentListeners.set(type, listener); } },
     window: { addEventListener(type, listener) {
       const listeners = windowListeners.get(type) || []; listeners.push(listener); windowListeners.set(type, listeners);
     } },
     errorText(error) { return error.message; }, setRuntime(message) { errors.push(message); },
     setSettingsMessage(message) { errors.push(message); },
-    api: { invoke(channel, value) {
+    api: { getKeyIcon(code) { return /^(?:Key[A-Z]|Digit[0-9])$/.test(code) ? 'data:image/png;base64,fixture' : ''; }, invoke(channel, value) {
       requests.push({ channel, value });
       if (channel === 'config:get') return Promise.resolve({ clicker: n.context.getPublicClickerState() });
       return n.invoke(channel, value);
@@ -497,6 +503,7 @@ test('captures one key, saves immediately, updates displayed bindings, and exits
     assert.equal(u.node('clicker-setting-label').attributes['aria-label'], '跳过剧情[' + label + ']');
     assert.equal(u.node('btn-story-skip').attributes['aria-keyshortcuts'], label);
     assert.equal(u.node('clicker-key').value, label);
+    assert.equal(u.node('root').classList.contains('has-keyboard-icon'), keyCode !== 'F12');
     assert.ok(!n.calls.some(code => code.includes('Held(true)')));
     u.emit('clicker-key', 'keydown', { code: 'KeyZ' });
     assert.equal(u.requests.length, 1);
