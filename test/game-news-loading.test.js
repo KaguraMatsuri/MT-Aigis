@@ -64,7 +64,7 @@ function harness(initialDiskCache) {
   });
   vm.runInContext([
     section('function loadGameNewsDiskCache(', 'function loadResource('),
-    section('async function getGameNews(', 'async function pingTarget('),
+    section('async function getGameNews(', 'function pingTarget('),
   ].join('\n'), context);
   context.loadGameNewsDiskCache();
   return {
