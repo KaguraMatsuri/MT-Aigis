@@ -2151,7 +2151,8 @@ function handleGameClickerKey(input) {
   if (!input || clickerInputCode(input) !== currentConfig.clicker.keyCode) return;
   if (input.type === 'keyUp') { releaseGameClickerKey(); return; }
   if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing || input.control ||
-    input.meta || input.alt || clickerKeyHeld || !currentConfig.clicker.enabled || !clickerAvailable()) return;
+    input.meta || input.alt || clickerKeyHeld || !currentConfig.clicker.enabled || !clickerAvailable() ||
+    mainWindow.webContents.isFocused()) return;
   const view = gameView, window = mainWindow, epoch = gameContentEpoch;
   const frame = view.webContents.focusedFrame || view.webContents.mainFrame;
   if (!frame || frame.isDestroyed()) return;
@@ -2171,7 +2172,7 @@ function handleGameClickerKey(input) {
     if (editing || mainWindow !== window || gameView !== view || gameContentEpoch !== epoch ||
       view.webContents.isDestroyed() || frame.isDestroyed() || frame.url !== frameUrl ||
       (view.webContents.focusedFrame || view.webContents.mainFrame) !== frame ||
-      !currentConfig.clicker.enabled || !clickerAvailable()) {
+      !currentConfig.clicker.enabled || !clickerAvailable() || window.webContents.isFocused()) {
       releaseGameClickerKey();
       return;
     }

@@ -1017,6 +1017,7 @@
 
   function installClickerControls() {
     var button = byId('btn-story-skip');
+    var keyInput = byId('clicker-key'), capturingKey = false, capturedKeyCode = '';
     button.addEventListener('pointerdown', function (event) {
       if (event.button !== 0 || button.disabled || button.hidden) return;
       event.preventDefault();
@@ -1042,7 +1043,7 @@
       if (clickerEditable(event.target)) releaseAllClickerInputs();
     });
     window.addEventListener('keydown', function (event) {
-      if (!isClickerKey(event) || !event.isTrusted || event.isComposing || event.ctrlKey || event.metaKey || event.altKey ||
+      if (capturingKey || capturedKeyCode || !isClickerKey(event) || !event.isTrusted || event.isComposing || event.ctrlKey || event.metaKey || event.altKey ||
         !clickerState || !clickerState.enabled || !clickerState.available ||
         clickerEditable(event.target) || clickerEditable(document.activeElement)) return;
       event.preventDefault();
@@ -1051,6 +1052,14 @@
       sendClickerHold();
     });
     window.addEventListener('keyup', function (event) {
+      if (capturedKeyCode && clickerInputCode(event) === capturedKeyCode) {
+        if (!event.isTrusted) return;
+        event.preventDefault();
+        event.stopPropagation();
+        capturedKeyCode = '';
+        keyInput.blur();
+        return;
+      }
       if (!isClickerKey(event) || !clickerUiKeyHeld) return;
       event.preventDefault();
       clickerUiKeyHeld = false;
@@ -1072,7 +1081,6 @@
     byId('clicker-cps').addEventListener('change', function () {
       saveClickerSettings({ cps: Number(this.value) });
     });
-    var keyInput = byId('clicker-key'), capturingKey = false;
     function cancelKeyCapture() {
       capturingKey = false;
       keyInput.value = (clickerState && clickerState.keyCode || 'KeyB').replace(/^(Key|Digit)/, '');
@@ -1080,14 +1088,21 @@
     keyInput.addEventListener('focus', function () {
       releaseClickerInputs();
       capturingKey = true;
+      capturedKeyCode = '';
       this.select();
     });
     keyInput.addEventListener('blur', cancelKeyCapture);
     window.addEventListener('blur', function () {
+      capturedKeyCode = '';
       cancelKeyCapture();
       keyInput.blur();
     });
     keyInput.addEventListener('keydown', function (event) {
+      if (capturedKeyCode && clickerInputCode(event) === capturedKeyCode && event.isTrusted) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!capturingKey || !event.isTrusted) return;
       if (event.key === 'Escape' || event.code === 'Escape') {
         event.preventDefault();
@@ -1102,8 +1117,8 @@
       event.preventDefault();
       event.stopPropagation();
       capturingKey = false;
+      capturedKeyCode = code;
       saveClickerSettings({ keyCode: code });
-      this.blur();
     });
   }
 

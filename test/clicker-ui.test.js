@@ -52,7 +52,7 @@ function deferred() {
 
 function native(options = {}, driver) {
   const handlers = new Map(), dialogs = [], saved = [], messages = [], calls = [];
-  let focused = true, viewFocused = true, failSave = false, installed = false, useWaiter, overlayFailure, overlayWait;
+  let focused = true, viewFocused = true, hostFocused = false, failSave = false, installed = false, useWaiter, overlayFailure, overlayWait;
   let editing = false, editingWait;
   let releaseWaiter;
   const rootCalls = [];
@@ -62,7 +62,7 @@ function native(options = {}, driver) {
   };
   const window = {
     isDestroyed() { return false; }, isFocused() { return focused; }, getContentSize() { return [1320, 760]; },
-    contentView: { addChildView() {} }, webContents: { id: 1, focus() {} },
+    contentView: { addChildView() {} }, webContents: { id: 1, focus() {}, isFocused() { return hostFocused; } },
   };
   const overlay = {
     setBounds() {}, setVisible(visible) { this.visible = visible; },
@@ -136,7 +136,7 @@ function native(options = {}, driver) {
     keyboardFirstUse() { useWaiter.resolve({ requested: true, disposed: false }); },
     focus(value) { focused = value; }, failSave(value) { failSave = value; },
     failOverlay(error) { overlayFailure = error; }, waitOverlay(promise) { overlayWait = promise; },
-    viewFocus(value) { viewFocused = value; }, editRoot(value) { editing = value; },
+    viewFocus(value) { viewFocused = value; }, hostFocus(value) { hostFocused = value; }, editRoot(value) { editing = value; },
     waitEditing(promise) { editingWait = promise; },
     key(type = 'keyDown', values = {}) {
       context.handleGameClickerKey({ type, code: context.currentConfig.clicker.keyCode, key: 'b', ...values });
@@ -448,6 +448,23 @@ test('forwards keys from osapi containers, leaves focused game DOM keys alone, a
   assert.ok(first.calls.some(code => code.includes('setKeyboardHeld(true)')));
 });
 
+test('ignores game key forwarding while the client owns focus, including delayed frame replies', async () => {
+  for (const delayed of [false, true]) {
+    const n = native({ acknowledged: true }); await n.ready();
+    const check = deferred();
+    if (delayed) {
+      n.waitEditing(check.promise); n.key();
+    }
+    n.hostFocus(true);
+    if (delayed) check.resolve(false);
+    else n.key();
+    await n.turn();
+    assert.ok(!n.calls.some(code => code.includes('setKeyboardHeld(true)')));
+    assert.equal(n.context.clickerKeyHeld, false);
+    assert.equal(n.context.clickerKeyActive, false);
+  }
+});
+
 test('validates and persists bindings while retaining legacy defaults and updating the warning title', async () => {
   const n = native(); await n.ready();
   for (const keyCode of ['KeyA', 'KeyZ', 'Digit0', 'Digit9', 'F1', 'F12']) {
@@ -502,6 +519,36 @@ test('cancels binding capture on Escape or lost focus and leaves invalid or modi
   }
   assert.equal(u.requests.length, 0);
   assert.equal(u.node('clicker-key').value, 'B');
+});
+
+test('consumes the complete binding press before allowing a fresh shortcut press', async () => {
+  for (const keyCode of ['KeyB', 'KeyC', 'F12']) {
+    const n = native({ acknowledged: true }); await n.ready(); const u = ui(n);
+    u.emit('clicker-key', 'focus');
+    u.emit('clicker-key', 'keydown', { code: keyCode }); await n.turn();
+    assert.equal(u.context.document.activeElement, u.node('clicker-key'));
+    for (const repeat of [false, true]) u.windowEvent('keydown', { code: keyCode, repeat });
+    u.windowEvent('keyup', { code: 'KeyZ' });
+    u.windowEvent('keydown', { code: keyCode }); await n.turn();
+    assert.ok(!n.calls.some(code => code.includes('Held(true)')));
+    assert.equal(u.node('btn-story-skip').classList.contains('clicker-held'), false);
+    u.windowEvent('keyup', { code: keyCode }); await n.turn();
+    assert.notEqual(u.context.document.activeElement, u.node('clicker-key'));
+    assert.ok(!n.calls.some(code => code.includes('Held(true)')));
+    u.windowEvent('keydown', { code: keyCode }); await n.turn();
+    assert.ok(n.calls.some(code => code.includes('setPointerHeld(true)')));
+    u.windowEvent('keyup', { code: keyCode }); await n.turn();
+    assert.equal(n.context.clickerPointerHeld, false);
+  }
+});
+
+test('cancels the binding press guard on window blur when keyup happens elsewhere', async () => {
+  const n = native({ acknowledged: true }); await n.ready(); const u = ui(n);
+  u.emit('clicker-key', 'focus'); u.emit('clicker-key', 'keydown', { code: 'KeyC' }); await n.turn();
+  u.windowEvent('blur'); await n.turn();
+  u.windowEvent('keydown', { code: 'KeyC' }); await n.turn();
+  assert.equal(n.context.clickerPointerHeld, true);
+  u.windowEvent('keyup', { code: 'KeyC' }); await n.turn();
 });
 
 test('uses the new UI binding and releases a held key when the saved binding changes', async () => {
