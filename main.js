@@ -18,6 +18,7 @@ const { pipeline } = require('node:stream/promises');
 
 const { SecureConfigStore, defaultConfig } = require('./lib/secure-config');
 const { PlainVault, emptyVault } = require('./lib/plain-vault');
+const { installGameBackgroundActivity } = require('./lib/game-background');
 const {
   getAutofillSuggestion,
   getAutofillValues,
@@ -1034,6 +1035,10 @@ function createGameView() {
   syncGameViewVisibility();
   gameView.webContents.setUserAgent(CHROME_UA);
   gameView.webContents.setBackgroundThrottling(false);
+  installGameBackgroundActivity(mainWindow, gameView.webContents, {
+    isGameUrl,
+    onError: error => debugLog('game-background-error', error.message),
+  });
   gameView.setBackgroundColor(gameFillColor());
   gameView.webContents.insertCSS(`
     :not(input):not(textarea):not([contenteditable="true"]) {
