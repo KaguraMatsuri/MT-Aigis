@@ -28,7 +28,7 @@
 - [适配] 界面: 为 macOS 适配 深色模式 / 浅色模式.
 - [适配] 语言: 根据 macOS 语言设置自动切换 简体中文 / 繁体中文 / 英文 / 日文，也可手动选择。
 - [适配] 画面: 可随客户端窗口变化自调整游戏窗口.
-- [功能] 关闭游戏音量.
+- [功能] 关闭或调节游戏音量.
 - [功能] 密码库: 侧边栏中, 可手动键入 E-mail 与 Password / TOTP, 并点击自动复制. 更新: 现已支持自动填充 账户 / 密码 / 2FA.
 - [功能] 剧情跳过功能.
 - [功能] 缓存 / Cookies 统计与清理.
@@ -67,7 +67,7 @@ xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
 - [適配] 介面：適配 macOS 深色模式與淺色模式。
 - [適配] 語言：根據 macOS 語言設定自動切換簡體中文／繁體中文／英文／日文，也可手動選擇。
 - [適配] 畫面：可隨用戶端視窗變化自動調整遊戲視窗。
-- [功能] 關閉遊戲音量。
+- [功能] 關閉或調節遊戲音量.
 - [功能] 密碼庫：可在側邊欄手動輸入 E-mail 與 Password / TOTP，並點擊自動複製。更新：現已支援自動填入帳號／密碼／2FA。
 - [功能] 劇情跳過功能.
 - [功能] 快取／Cookies 統計與清理。
@@ -106,7 +106,7 @@ If you need anything, feel free to reach me through NGA, Tieba, or QQ (128396219
 - [Compatibility] Interface: Supports the macOS dark and light appearances.
 - [Compatibility] Language: Automatically switches between Simplified Chinese, Traditional Chinese, English, and Japanese according to the macOS language setting, with manual selection also available.
 - [Compatibility] Game View: Automatically adjusts the game view when the client window changes size.
-- [Feature] Mute the game.
+- [Feature] Mute or adjust the game volume.
 - [Feature] Vault: Manually enter an E-mail, Password, or TOTP in the sidebar and copy it with one click. Update: Account, password, and 2FA autofill are now supported.
 - [Feature] Story skipping.
 - [Feature] View and clear cache and cookies.
