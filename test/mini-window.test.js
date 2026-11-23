@@ -1,12 +1,14 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { pathToFileURL } = require('node:url');
 const vm = require('node:vm');
 const { createMiniWindowControls } = require('../lib/mini-window');
 const { isAdaptedPage, DEFAULT_URL } = require('../lib/navigation');
+const { defaultConfig, SecureConfigStore } = require('../lib/secure-config');
 
 class TestWindow extends EventEmitter {
   constructor(options = {}) {
@@ -18,10 +20,12 @@ class TestWindow extends EventEmitter {
     this.destroyed = false;
     this.reveals = 0;
     this.opacityChanges = [];
+    this.messages = [];
     this.webContents = Object.assign(new EventEmitter(), {
       mainFrame: {},
       focus() {},
       setWindowOpenHandler() {},
+      send: (channel, state) => this.messages.push({ channel, state }),
     });
     const children = [];
     this.contentView = {
@@ -127,6 +131,23 @@ test('keeps the mini window visible during opacity drags and native resizing, an
   assert.equal(window.listenerCount('move'), 0);
 });
 
+test('shows a new mini window with stealth enabled and hides only after the pointer has entered', (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'] });
+  const window = new TestWindow({ show: false });
+  let point = { x: 10, y: 20 };
+  const controls = createMiniWindowControls(window, { getCursorScreenPoint: () => point }, true);
+  t.after(() => controls.dispose());
+  window.show();
+  assert.equal(controls.update().revealOnHover, true);
+  t.mock.timers.tick(400);
+  assert.equal(window.visible, true);
+  point = { x: 150, y: 250 };
+  t.mock.timers.tick(80);
+  point = { x: 10, y: 20 };
+  t.mock.timers.tick(80);
+  assert.equal(window.visible, false);
+});
+
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
 function section(start, end) {
@@ -135,7 +156,7 @@ function section(start, end) {
   return source.slice(first, last);
 }
 
-function hostFixture(loadFile = async () => {}) {
+function hostFixture(loadFile = async () => {}, config = defaultConfig(), store = { save() {} }) {
   const mainWindow = new TestWindow({ width: 1320, height: 760 });
   mainWindow.webContents.mainFrame.url = pathToFileURL(path.join(root, 'ui', 'index.html')).href;
   const gameView = { webContents: { isDestroyed: () => false, getURL: () => DEFAULT_URL, focus() {} } };
@@ -147,11 +168,15 @@ function hostFixture(loadFile = async () => {}) {
   const context = vm.createContext({
     path, pathToFileURL, __dirname: root, process: { platform: 'darwin' }, TOP_BAR_H: 48,
     mainWindow, gameView, overlayView,
+    currentConfig: config, store,
     miniWindow: null, miniWindowTask: null, gameBackgroundActivity: null,
     gameContentReady: true, gameContentSize: { width: 960, height: 640 }, gameContentEpoch: 0,
     gameViewLoadingMasked: false, gameViewFallbackHidden: false,
     overlayState: null, updatePrompt: null, clickerWarningTask: null, sidebarTransitionActive: false, quitAfterFlush: false,
-    screen: { getDisplayMatching() { return { workArea: { x: 0, y: 24, width: 1024, height: 740 } }; } },
+    screen: {
+      getDisplayMatching() { return { workArea: { x: 0, y: 24, width: 1024, height: 740 } }; },
+      getCursorScreenPoint() { return { x: 0, y: 0 }; },
+    },
     isGameUrl: isAdaptedPage, createMiniWindowControls,
     gameFillColor: () => '#101011',
     installGameBackgroundActivity(host, contents) {
@@ -220,4 +245,55 @@ test('keeps the original game visible if the mini shell cannot load or the game 
     assert.equal(h.windows[0].destroyed, true);
     assert.deepEqual(h.mainWindow.contentView.children, [h.gameView, h.overlayView]);
   }
+});
+
+test('persists only changes to the stealth preference and restores it from encrypted storage', async (t) => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-aigis-mini-preference-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const createStore = () => {
+    const store = new SecureConfigStore(folder);
+    store.getOrCreateKey = () => Buffer.alloc(32, 15);
+    return store;
+  };
+  const store = createStore();
+  let writes = 0;
+  const h = hostFixture(undefined, store.load(), {
+    save(config) { writes++; return store.save(config); },
+  });
+  const open = h.handlers.get('window:mini:open');
+  assert.equal(await open(h.eventFor(h.mainWindow)), true);
+  const mini = h.windows[0];
+  t.after(() => { if (!mini.destroyed) mini.close(); });
+  assert.equal(mini.messages[0].channel, 'window:mini:state');
+  assert.equal(mini.messages[0].state.revealOnHover, true);
+  const update = h.handlers.get('window:mini:controls');
+  const event = h.eventFor(mini);
+  update(event, { opacity: 42 });
+  update(event, { revealOnHover: true });
+  assert.equal(writes, 0);
+  assert.equal(update(event, { revealOnHover: false }).revealOnHover, false);
+  update(event, { revealOnHover: false });
+  assert.equal(writes, 1);
+  mini.close();
+
+  const restarted = hostFixture(undefined, createStore().load());
+  assert.equal(await restarted.handlers.get('window:mini:open')(restarted.eventFor(restarted.mainWindow)), true);
+  const next = restarted.windows[0];
+  t.after(() => { if (!next.destroyed) next.close(); });
+  assert.equal(next.messages[0].state.revealOnHover, false);
+  assert.equal(next.messages[0].state.opacity, 100);
+});
+
+test('keeps the visible stealth setting when encrypted storage refuses the change', async (t) => {
+  const h = hostFixture(undefined, defaultConfig(), {
+    save() { throw new Error('fixture denied write'); },
+  });
+  assert.equal(await h.handlers.get('window:mini:open')(h.eventFor(h.mainWindow)), true);
+  const mini = h.windows[0];
+  t.after(() => mini.close());
+  const update = h.handlers.get('window:mini:controls');
+  const event = h.eventFor(mini);
+  assert.throws(() => update(event, { revealOnHover: false }), /fixture denied write/);
+  assert.equal(update(event).revealOnHover, true);
+  assert.equal(h.context.currentConfig.view.miniWindowRevealOnHover, true);
 });

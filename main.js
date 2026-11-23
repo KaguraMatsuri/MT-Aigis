@@ -1142,7 +1142,9 @@ async function createMiniWindow(host, view, epoch) {
       return false;
     }
     stopGameClicker(true);
-    miniWindow = { window, controls: createMiniWindowControls(window, screen) };
+    const controls = createMiniWindowControls(window, screen, currentConfig.view.miniWindowRevealOnHover);
+    miniWindow = { window, controls };
+    window.webContents.send('window:mini:state', controls.update());
     moveGameViews(host, window);
     bindGameBackgroundActivity(window);
     updateLayout(false);
@@ -1458,6 +1460,8 @@ function normalizeConfig(rawConfig) {
       customUrl: normalizeCustomUrl(source.view && source.view.customUrl) || '',
       alwaysOnTop: !!(source.view && source.view.alwaysOnTop),
       audioVolume: normalizeAudioVolume(source.view && source.view.audioVolume),
+      miniWindowRevealOnHover: typeof source.view?.miniWindowRevealOnHover === 'boolean'
+        ? source.view.miniWindowRevealOnHover : base.view.miniWindowRevealOnHover,
     },
     session: {
       ...base.session,
@@ -2775,6 +2779,15 @@ ipcMain.handle('window:mini:open', (event) => {
 
 ipcMain.handle('window:mini:controls', (event, changes) => {
   if (!miniWindow || !isWindowControlSender(event, miniWindow.window, 'mini-window.html')) return null;
+  const revealOnHover = changes?.revealOnHover;
+  if (typeof revealOnHover === 'boolean' && revealOnHover !== currentConfig.view.miniWindowRevealOnHover) {
+    const updated = {
+      ...currentConfig,
+      view: { ...currentConfig.view, miniWindowRevealOnHover: revealOnHover },
+    };
+    store.save(updated);
+    currentConfig = updated;
+  }
   return miniWindow.controls.update(changes);
 });
 

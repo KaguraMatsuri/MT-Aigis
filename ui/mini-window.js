@@ -16,12 +16,15 @@
   }
 
   const update = (changes) => api.controls(changes).catch(() => null);
-  update().then((state) => {
+  function applyInitialState(state) {
     if (!state) return;
     slider.value = state.opacity;
     output.value = state.opacity + '%';
     eye.setAttribute('aria-pressed', String(state.revealOnHover));
-  });
+    eye.disabled = false;
+  }
+  api.onState(applyInitialState);
+  update().then(applyInitialState);
   eye.addEventListener('click', async () => {
     eye.disabled = true;
     const next = eye.getAttribute('aria-pressed') !== 'true';
