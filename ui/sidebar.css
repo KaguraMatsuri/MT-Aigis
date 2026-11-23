@@ -463,6 +463,10 @@ h2 {
   mask-repeat: no-repeat;
 }
 
+#btn-mini-window .titlebar-symbol.has-image {
+  transform: rotate(45deg) scaleX(-1);
+}
+
 .mini-window-page .mini-window-controls {
   -webkit-app-region: no-drag;
 }
