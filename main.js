@@ -2357,8 +2357,23 @@ function isGameContainerFrame(rawUrl) {
   }
 }
 
+function isGameLayoutContainerFrame(rawUrl) {
+  if (isGameContainerFrame(rawUrl)) return true;
+  try {
+    const url = new URL(rawUrl);
+    const contents = gameView?.webContents;
+    return (
+      url.origin === 'https://osapi.games.dmm.com' &&
+      url.pathname === '/gadgets/ifr' &&
+      !!contents && !contents.isDestroyed() && isGameUrl(contents.getURL())
+    );
+  } catch {
+    return false;
+  }
+}
+
 function focusGameContainer(frame) {
-  if (!containerFocusSource || !frame || !isGameContainerFrame(frame.url)) {
+  if (!containerFocusSource || !frame || !isGameLayoutContainerFrame(frame.url)) {
     return Promise.resolve(null);
   }
   return frame.executeJavaScript(
@@ -2383,12 +2398,13 @@ function focusGameContainer(frame) {
 }
 
 function installGameFrameAdapter(frame) {
-  if (!frame || !isGameContentFrame(frame.url)) return Promise.resolve(null);
+  const containerTask = focusGameContainer(frame);
+  if (!frame || !isGameContentFrame(frame.url)) return containerTask;
   const view = gameView;
   const epoch = gameContentEpoch;
   const frameUrl = frame.url;
   return Promise.all([
-    focusGameContainer(frame),
+    containerTask,
     frame.executeJavaScript(scrollSource)
     .then((installResult) => {
       return frame.executeJavaScript(
@@ -2435,7 +2451,7 @@ function focusAllGameContainers() {
     const root = gameView.webContents.mainFrame;
     return Promise.all(
       [root, ...root.framesInSubtree]
-        .filter((frame) => isGameContainerFrame(frame.url))
+        .filter((frame) => isGameLayoutContainerFrame(frame.url))
         .map((frame) => focusGameContainer(frame))
     );
   } catch (_) {

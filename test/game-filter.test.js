@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { DEFAULT_URL, isAdaptedPage } = require('../lib/navigation');
 
 const root = path.join(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
@@ -15,7 +16,7 @@ function section(start, end) {
   return main.slice(first, last);
 }
 
-function container() {
+function container(url = 'https://osapi.dmm.com/gadgets/ifr') {
   function node(id) {
     const attributes = new Map(), styles = new Map();
     return {
@@ -38,16 +39,20 @@ function container() {
   wrapper.parentElement = body; footer.parentElement = body; body.children = [wrapper, footer];
   header.parentElement = wrapper; frame.parentElement = wrapper; wrapper.children = [header, frame];
   const context = vm.createContext({
-    window: {}, location: { href: 'https://osapi.dmm.com/gadgets/ifr' }, URL,
+    window: {}, location: { href: url }, URL,
     document: { documentElement: html, body, querySelectorAll() { return [frame]; }, addEventListener() {} },
     MutationObserver: class { observe() {} }, requestAnimationFrame() {},
   });
   return { context, html, body, wrapper, header, footer, frame, gameNodes: [canvas, dialog, audio, communication] };
 }
 
-function native() {
+function native(entryUrl = DEFAULT_URL) {
   const presentations = [], containerUpdates = [], visibility = [];
-  const view = { webContents: { isDestroyed() { return false; } }, setVisible(value) { visibility.push(value); } };
+  const mainFrame = { url: entryUrl, framesInSubtree: [] };
+  const view = {
+    webContents: { mainFrame, getURL() { return mainFrame.url; }, isDestroyed() { return false; } },
+    setVisible(value) { visibility.push(value); },
+  };
   const context = vm.createContext({
     URL, gameView: view, gameContentReady: false, gameContentSize: null, gameContentEpoch: 0,
     gameViewLoadingMasked: true, gameViewFallbackHidden: false,
@@ -56,13 +61,18 @@ function native() {
     stopGameClicker() {}, syncGameClicker() {}, installGameClicker() {},
     containerFocusSource: containerSource, scrollSource: 'fixture-scroll-source',
     getScrollLevel() { return 5; }, debugLog() {}, startAnonymousUsage() { assert.fail(); },
+    isGameUrl: isAdaptedPage,
     applyGamePresentation() { presentations.push(context.gameContentSize); return Promise.resolve(); },
-    focusAllGameContainers() { containerUpdates.push(context.gameContentSize); return Promise.resolve(); },
   });
   vm.runInContext([
     section('function isGameContentFrame(', 'function createWindow('),
-    section('function resetGameContent(', 'function focusAllGameContainers('),
+    section('function resetGameContent(', 'function installAllGameFrameAdapters('),
   ].join('\n'), context);
+  const focusAllGameContainers = context.focusAllGameContainers;
+  context.focusAllGameContainers = () => {
+    containerUpdates.push(context.gameContentSize);
+    return focusAllGameContainers();
+  };
   function frame(size, options = {}) {
     const calls = [];
     return {
@@ -78,7 +88,7 @@ function native() {
       },
     };
   }
-  return { context, frame, presentations, containerUpdates, visibility };
+  return { context, frame, mainFrame, presentations, containerUpdates, visibility };
 }
 
 test('filters only DOM outside the game iframe and configures its viewport using measured dimensions', async () => {
@@ -100,6 +110,51 @@ test('filters only DOM outside the game iframe and configures its viewport using
   await n.context.focusGameContainer(f);
   assert.equal(c.frame.style.getPropertyValue('width'), '960px');
   assert.equal(c.frame.style.getPropertyValue('height'), '640px');
+});
+
+test('filters the new DMM wrapper on load and sizes it from the playable canvas before reveal', async () => {
+  const url = 'https://osapi.games.dmm.com/gadgets/ifr?fixture=1';
+  const n = native(), c = container(url);
+  const wrapper = n.frame(null, { url, container: c });
+  n.mainFrame.framesInSubtree = [wrapper];
+  await n.context.installGameFrameAdapter(wrapper);
+  assert.equal(c.frame.style.getPropertyValue('width'), '960px');
+  assert.equal(c.header.style.getPropertyValue('display'), 'none');
+  assert.equal(wrapper.calls.length, 1);
+  assert.equal(n.context.gameContentSize, null);
+
+  await n.context.installGameFrameAdapter(n.frame({ width: 1000, height: 700 }));
+  n.context.markGameContentReady();
+  await new Promise(setImmediate);
+  assert.equal(c.frame.style.getPropertyValue('width'), '1000px');
+  assert.equal(c.frame.style.getPropertyValue('height'), '700px');
+  assert.equal(c.body.style.getPropertyValue('overflow'), 'hidden');
+  assert.deepEqual(n.visibility, [true]);
+
+  const replacement = container(url);
+  await n.context.installGameFrameAdapter(n.frame(null, { url, container: replacement }));
+  assert.equal(replacement.frame.style.getPropertyValue('width'), '1000px');
+  assert.equal(replacement.frame.style.getPropertyValue('height'), '700px');
+});
+
+test('leaves unrelated URLs and non-Aigis entry pages outside the new layout filter', async () => {
+  const url = 'https://osapi.games.dmm.com/gadgets/ifr';
+  const cases = [
+    [DEFAULT_URL, 'https://osapi.games.dmm.com/gadgets/other'],
+    [DEFAULT_URL, 'http://osapi.games.dmm.com/gadgets/ifr'],
+    [DEFAULT_URL, 'https://osapi.games.dmm.com:8443/gadgets/ifr'],
+    [DEFAULT_URL, 'https://osapi.games.dmm.com.example.test/gadgets/ifr'],
+    ['https://play.games.dmm.com/game/other', url],
+    ['https://accounts.dmm.com/service/login', url],
+  ];
+  for (const [entryUrl, wrapperUrl] of cases) {
+    const n = native(entryUrl);
+    const frame = n.frame(null, { url: wrapperUrl });
+    n.mainFrame.framesInSubtree = [frame];
+    await n.context.installGameFrameAdapter(frame);
+    await n.context.focusAllGameContainers();
+    assert.deepEqual(frame.calls, [], `${entryUrl} -> ${wrapperUrl}`);
+  }
 });
 
 test('caches geometry from the playable frame and only refreshes presentation when its measured size changes', async () => {
