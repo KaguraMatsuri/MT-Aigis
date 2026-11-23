@@ -760,6 +760,7 @@
       }
       var status = browser.loading ? t('loading') : t('gameSession');
       if (byId('top-status').textContent !== status) byId('top-status').textContent = status;
+      byId('btn-mini-window').disabled = !browser.canOpenMiniWindow;
       applyCustomUrlState(browser);
       syncMuteState(!!browser.audioMuted);
       if (isGamePageVisible() && !browser.loading) {
@@ -1325,6 +1326,22 @@
     api.invoke('language:set', this.value).then(function (view) {
       applyLanguage(view.effectiveLanguage);
       setSettingsMessage(t('languageSaved'), false);
+    });
+  });
+  var miniButton = byId('btn-mini-window');
+  var miniIcon = api.getMiniWindowIcon();
+  if (miniIcon) {
+    var fish = miniButton.querySelector('.titlebar-symbol');
+    fish.textContent = '';
+    fish.style.maskImage = 'url("' + miniIcon + '")';
+    fish.classList.add('has-image');
+  }
+  miniButton.addEventListener('click', function () {
+    miniButton.disabled = true;
+    api.invoke('window:mini:open').catch(function (error) {
+      setRuntime(errorText(error), true);
+    }).finally(function () {
+      refreshBrowserState();
     });
   });
   byId('btn-always-on-top').addEventListener('click', function () {

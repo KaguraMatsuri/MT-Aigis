@@ -101,7 +101,7 @@ function native(options = {}, driver) {
   };
   const context = vm.createContext({
     URL, AbortController, defaultConfig,
-    mainWindow: window, gameView: view, currentConfig: defaultConfig(),
+    mainWindow: window, miniWindow: null, gameView: view, currentConfig: defaultConfig(),
     gameContentReady: true, gameContentEpoch: 0, gameViewLoadingMasked: false,
     gameViewFallbackHidden: false, overlayState: null, overlayView: overlay, gameClickerSource: clicker,
     clickerFrames: new Map(), clickerPointerHeld: false, clickerKeyHeld: false, clickerKeyActive: false, clickerKeySequence: 0,
@@ -120,6 +120,7 @@ function native(options = {}, driver) {
   vm.runInContext([
     section(main, 'const CLICKER_WARNING =', 'const APP_TEXT ='),
     section(main, 'function isGameContentFrame(', 'function createWindow('),
+    section(main, 'function gameHostWindow(', 'function canOpenMiniWindow('),
     section(main, 'function isGameContainerFrame(', 'function focusGameContainer('),
     section(main, 'function normalizeConfig(', 'function normalizeZoomFactor('),
     section(main, 'function normalizeOverlayState(', 'function resolveUpdatePrompt('),

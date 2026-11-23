@@ -5,6 +5,7 @@ const {
   Menu,
   clipboard,
   ipcMain,
+  screen,
   shell,
   nativeTheme,
 } = require('electron');
@@ -15,10 +16,12 @@ const os = require('os');
 const path = require('path');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { pathToFileURL } = require('node:url');
 
 const { SecureConfigStore, defaultConfig } = require('./lib/secure-config');
 const { PlainVault, emptyVault } = require('./lib/plain-vault');
 const { installGameBackgroundActivity } = require('./lib/game-background');
+const { createMiniWindowControls } = require('./lib/mini-window');
 const {
   getAutofillSuggestion,
   getAutofillValues,
@@ -270,6 +273,9 @@ const store = new SecureConfigStore(path.join(USER_DATA, 'secure'));
 const vault = new PlainVault(path.join(USER_DATA, 'secure', 'vault.json'));
 let currentConfig = normalizeConfig(store.load());
 let mainWindow = null;
+let miniWindow = null;
+let miniWindowTask = null;
+let gameBackgroundActivity = null;
 let gameView = null;
 let overlayView = null;
 let overlayReady = null;
@@ -460,6 +466,9 @@ function updateNativeAppearance() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setBackgroundColor(gameFillColor());
   }
+  if (miniWindow && !miniWindow.window.isDestroyed()) {
+    miniWindow.window.setBackgroundColor(gameFillColor());
+  }
   if (gameView && !gameView.webContents.isDestroyed()) {
     gameView.setBackgroundColor(gameFillColor());
     applyGamePresentation();
@@ -505,7 +514,7 @@ function showAboutDialog() {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 14 },
     backgroundColor: gameFillColor(),
-    parent: mainWindow || undefined,
+    parent: gameHostWindow() || undefined,
     modal: false,
     show: false,
     icon: path.join(__dirname, 'resources', 'icon.png'),
@@ -722,6 +731,10 @@ async function showUpdateNotification(release) {
       return false;
     }).then((opened) => {
       if (opened || !updatePrompt || updatePrompt.release !== release) return;
+      if (gameHostWindow() !== mainWindow) {
+        resolveUpdatePrompt('later');
+        return;
+      }
       updatePrompt.surface = 'renderer';
       gameViewFallbackHidden = true;
       syncGameViewVisibility();
@@ -980,6 +993,9 @@ function createWindow() {
     forwardNativeEditShortcut(mainWindow.webContents, input);
   });
   mainWindow.on('closed', () => {
+    if (miniWindow) closeMiniWindow(false);
+    gameBackgroundActivity?.dispose();
+    gameBackgroundActivity = null;
     stopAnonymousUsageForWindow();
     resolveTelemetryConsentWaiters(false);
     resetGameContent();
@@ -1011,6 +1027,137 @@ function createWindow() {
   prepareAnonymousUsageForWindow();
 }
 
+function gameHostWindow() {
+  return miniWindow?.window || mainWindow;
+}
+
+function canOpenMiniWindow() {
+  return process.platform === 'darwin' && !!mainWindow && !mainWindow.isDestroyed() &&
+    !!gameView && !gameView.webContents.isDestroyed() && gameContentReady &&
+    !gameViewLoadingMasked && !gameViewFallbackHidden && !overlayState && !updatePrompt &&
+    !clickerWarningTask && !sidebarTransitionActive && !quitAfterFlush &&
+    isGameUrl(gameView.webContents.getURL());
+}
+
+function bindGameBackgroundActivity(window) {
+  gameBackgroundActivity?.dispose();
+  gameBackgroundActivity = installGameBackgroundActivity(window, gameView.webContents, {
+    isGameUrl,
+    onError: error => debugLog('game-background-error', error.message),
+  });
+}
+
+function moveGameViews(from, to) {
+  for (const view of [gameView, overlayView]) {
+    if (!view || view.webContents.isDestroyed()) continue;
+    if (!from.isDestroyed()) from.contentView.removeChildView(view);
+    if (to) to.contentView.addChildView(view);
+  }
+}
+
+function closeMiniWindow(restore = true) {
+  if (!miniWindow) return false;
+  const { window, controls } = miniWindow;
+  const host = restore && mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  miniWindow = null;
+  controls.dispose();
+  stopGameClicker(true);
+  moveGameViews(window, host);
+  if (!window.isDestroyed()) window.destroy();
+  if (host) {
+    if (gameView && !gameView.webContents.isDestroyed()) bindGameBackgroundActivity(host);
+    updateLayout(false);
+    host.show();
+    const contents = (overlayState ? overlayView : gameView)?.webContents;
+    if (contents && !contents.isDestroyed()) contents.focus();
+  }
+  return true;
+}
+
+function openMiniWindow() {
+  if (miniWindow) return Promise.resolve(true);
+  if (miniWindowTask) return miniWindowTask;
+  if (!canOpenMiniWindow()) return Promise.resolve(false);
+  const task = createMiniWindow(mainWindow, gameView, gameContentEpoch);
+  miniWindowTask = task;
+  return task.finally(() => {
+    if (miniWindowTask === task) miniWindowTask = null;
+  });
+}
+
+async function createMiniWindow(host, view, epoch) {
+  const { workArea } = screen.getDisplayMatching(host.getBounds());
+  const width = Math.min(480, workArea.width);
+  const size = gameContentSize || { width: 960, height: 640 };
+  const height = Math.min(TOP_BAR_H + Math.round(width * size.height / size.width), workArea.height);
+  const window = new BrowserWindow({
+    x: workArea.x + Math.floor((workArea.width - width) / 2),
+    y: workArea.y + Math.floor((workArea.height - height) / 2),
+    width,
+    height,
+    useContentSize: true,
+    minWidth: Math.min(width, 320),
+    minHeight: Math.min(height, TOP_BAR_H + 180),
+    title: 'MT-Aigis',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 18, y: 16 },
+    backgroundColor: gameFillColor(),
+    resizable: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'resources', 'mini-window-preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+    },
+  });
+  window.setAlwaysOnTop(host.isAlwaysOnTop());
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', event => event.preventDefault());
+  window.webContents.on('render-process-gone', () => {
+    if (miniWindow?.window === window && !quitAfterFlush) closeMiniWindow();
+  });
+  window.on('close', (event) => {
+    if (miniWindow?.window !== window || quitAfterFlush) return;
+    event.preventDefault();
+    closeMiniWindow();
+  });
+  window.on('closed', () => {
+    if (miniWindow?.window === window) closeMiniWindow(!quitAfterFlush);
+  });
+  window.on('resize', updateLayout);
+  window.on('resized', () => updateLayout(false));
+  window.on('blur', () => stopGameClicker(true));
+  window.on('hide', () => stopGameClicker());
+  window.on('minimize', () => stopGameClicker());
+  window.on('focus', () => {
+    if (overlayState) overlayView?.webContents.focus();
+    syncGameClicker();
+  });
+  try {
+    await window.loadFile(path.join(__dirname, 'ui', 'mini-window.html'));
+    if (window.isDestroyed() || host !== mainWindow || view !== gameView ||
+      epoch !== gameContentEpoch || !canOpenMiniWindow()) {
+      if (!window.isDestroyed()) window.destroy();
+      return false;
+    }
+    stopGameClicker(true);
+    miniWindow = { window, controls: createMiniWindowControls(window, screen) };
+    moveGameViews(host, window);
+    bindGameBackgroundActivity(window);
+    updateLayout(false);
+    window.show();
+    gameView.webContents.focus();
+    host.hide();
+    return true;
+  } catch (error) {
+    if (miniWindow?.window === window) closeMiniWindow();
+    else if (!window.isDestroyed()) window.destroy();
+    debugLog('mini-window-error', error.message);
+    return false;
+  }
+}
+
 function createGameView() {
   gameView = new WebContentsView({
     webPreferences: {
@@ -1035,10 +1182,7 @@ function createGameView() {
   syncGameViewVisibility();
   gameView.webContents.setUserAgent(CHROME_UA);
   gameView.webContents.setBackgroundThrottling(false);
-  installGameBackgroundActivity(mainWindow, gameView.webContents, {
-    isGameUrl,
-    onError: error => debugLog('game-background-error', error.message),
-  });
+  bindGameBackgroundActivity(mainWindow);
   gameView.setBackgroundColor(gameFillColor());
   gameView.webContents.insertCSS(`
     :not(input):not(textarea):not([contenteditable="true"]) {
@@ -1409,8 +1553,9 @@ function normalizeOverlayState(payload, previous) {
 }
 
 function applyOverlayBounds() {
-  if (!mainWindow || mainWindow.isDestroyed() || !overlayView) return false;
-  const size = mainWindow.getContentSize();
+  const host = gameHostWindow();
+  if (!host || host.isDestroyed() || !overlayView) return false;
+  const size = host.getContentSize();
   overlayView.setBounds({ x: 0, y: 0, width: size[0], height: size[1] });
   return true;
 }
@@ -1430,7 +1575,7 @@ function ensureOverlayView() {
     },
   });
   overlayView.setBackgroundColor('#00000000');
-  mainWindow.contentView.addChildView(overlayView);
+  gameHostWindow().contentView.addChildView(overlayView);
   applyOverlayBounds();
   overlayView.setVisible(false);
   overlayView.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -1462,11 +1607,12 @@ async function showOverlay(payload, signal) {
     sendToRenderer('native-overlay:closed', { kind: overlayState.kind });
   }
   overlayState = nextState;
-  mainWindow.contentView.addChildView(overlayView);
+  const host = gameHostWindow();
+  host.contentView.addChildView(overlayView);
   applyOverlayBounds();
   overlayView.setVisible(true);
   overlayView.webContents.send('native-overlay:state', overlayState);
-  overlayView.webContents.focus();
+  if (host === mainWindow || host.isFocused()) overlayView.webContents.focus();
   await syncGameClicker();
   return true;
 }
@@ -1487,7 +1633,9 @@ function closeOverlay() {
   overlayView.setVisible(false);
   overlayState = null;
   sendToRenderer('native-overlay:closed', { kind });
-  mainWindow.webContents.focus();
+  const host = gameHostWindow();
+  if (host === mainWindow) host.webContents.focus();
+  else if (host.isFocused()) gameView?.webContents.focus();
   if (kind !== 'clicker-consent') syncGameClicker();
   return true;
 }
@@ -1550,9 +1698,14 @@ function executeSidebarTransition(transition, method, options) {
 }
 
 function applyGameViewBounds(sidebarWidth) {
-  if (!mainWindow || !gameView || gameView.webContents.isDestroyed()) return false;
-  var size = mainWindow.getContentSize();
+  const host = gameHostWindow();
+  if (!host || host.isDestroyed() || !gameView || gameView.webContents.isDestroyed()) return false;
+  var size = host.getContentSize();
   var width = size[0], height = size[1];
+  if (host !== mainWindow) {
+    gameView.setBounds({ x: 0, y: TOP_BAR_H, width, height: Math.max(1, height - TOP_BAR_H) });
+    return true;
+  }
   var sidebarW = Math.round(Number.isFinite(sidebarWidth)
     ? Math.min(SIDEBAR_OPEN_WIDTH, Math.max(SIDEBAR_CLOSED_WIDTH, sidebarWidth))
     : sidebarCollapsed ? SIDEBAR_CLOSED_WIDTH : SIDEBAR_OPEN_WIDTH);
@@ -2103,7 +2256,8 @@ function getPublicClickerState() {
 }
 
 function clickerAvailable() {
-  return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() &&
+  const host = gameHostWindow();
+  return !!(host && !host.isDestroyed() && host.isFocused() &&
     gameView && !gameView.webContents.isDestroyed() && gameContentReady &&
     !gameViewLoadingMasked && !gameViewFallbackHidden && !overlayState &&
     [...clickerFrames.values()].some(validClickerFrame));
@@ -2150,10 +2304,11 @@ function watchClickerKeyboardRelease(entry, sequence) {
 function handleGameClickerKey(input) {
   if (!input || clickerInputCode(input) !== currentConfig.clicker.keyCode) return;
   if (input.type === 'keyUp') { releaseGameClickerKey(); return; }
+  const window = gameHostWindow();
   if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing || input.control ||
     input.meta || input.alt || clickerKeyHeld || !currentConfig.clicker.enabled || !clickerAvailable() ||
-    mainWindow.webContents.isFocused()) return;
-  const view = gameView, window = mainWindow, epoch = gameContentEpoch;
+    window.webContents.isFocused()) return;
+  const view = gameView, epoch = gameContentEpoch;
   const frame = view.webContents.focusedFrame || view.webContents.mainFrame;
   if (!frame || frame.isDestroyed()) return;
   const frameUrl = frame.url;
@@ -2169,7 +2324,7 @@ function handleGameClickerKey(input) {
       !!element.closest('[contenteditable="true"]'));
   })()`).then(async (editing) => {
     if (sequence !== clickerKeySequence || !clickerKeyHeld) return;
-    if (editing || mainWindow !== window || gameView !== view || gameContentEpoch !== epoch ||
+    if (editing || gameHostWindow() !== window || gameView !== view || gameContentEpoch !== epoch ||
       view.webContents.isDestroyed() || frame.isDestroyed() || frame.url !== frameUrl ||
       (view.webContents.focusedFrame || view.webContents.mainFrame) !== frame ||
       !currentConfig.clicker.enabled || !clickerAvailable() || window.webContents.isFocused()) {
@@ -2607,6 +2762,22 @@ ipcMain.handle('window:always-on-top:set', (event, enabled) => {
   return { alwaysOnTop: currentConfig.view.alwaysOnTop };
 });
 
+function isWindowControlSender(event, window, file) {
+  if (!window || window.isDestroyed()) return false;
+  const contents = window.webContents;
+  return event.sender === contents && !!event.senderFrame && event.senderFrame === contents.mainFrame &&
+    event.senderFrame.url === pathToFileURL(path.join(__dirname, 'ui', file)).href;
+}
+
+ipcMain.handle('window:mini:open', (event) => {
+  return isWindowControlSender(event, mainWindow, 'index.html') && openMiniWindow();
+});
+
+ipcMain.handle('window:mini:controls', (event, changes) => {
+  if (!miniWindow || !isWindowControlSender(event, miniWindow.window, 'mini-window.html')) return null;
+  return miniWindow.controls.update(changes);
+});
+
 ipcMain.handle('browser:custom-url:set', (event, rawUrl) => {
   if (
     !mainWindow ||
@@ -2630,6 +2801,7 @@ ipcMain.handle('browser:state', async () => {
       title: '',
       url: '',
       loading: false,
+      canOpenMiniWindow: false,
       canGoBack: false,
       canGoForward: false,
       lastError: '',
@@ -2646,6 +2818,7 @@ ipcMain.handle('browser:state', async () => {
     title: gameView.webContents.getTitle(),
     url: gameView.webContents.getURL(),
     loading: gameView.webContents.isLoading(),
+    canOpenMiniWindow: canOpenMiniWindow(),
     canGoBack: gameView.webContents.navigationHistory.canGoBack(),
     canGoForward: gameView.webContents.navigationHistory.canGoForward(),
     lastError: '',
@@ -3187,7 +3360,9 @@ app.whenReady().then(() => {
   createWindow();
   setTimeout(() => checkForUpdates(), 3000);
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (quitAfterFlush) return;
+    if (miniWindow) closeMiniWindow();
+    else if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 

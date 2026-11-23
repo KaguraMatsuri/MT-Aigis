@@ -46,6 +46,7 @@ function fixture(t) {
     ...helpers,
     UPDATE_MANIFEST_URL: manifestUrl, GITHUB_RELEASE_API_URL: releaseUrl, CHROME_UA: 'fixture',
     updateState: {}, updateDownloadTask: null, updatePrompt: null, overlayState: null, overlayReady: null,
+    miniWindow: null, gameBackgroundActivity: null,
     gameViewFallbackHidden: false, gameViewAttached: true, sidebarTransitionActive: false,
     sidebarCollapsed: false, layoutPresentationTimer: null, quitAfterFlush: false,
     clickerWarningAbort: null, currentConfig: { view: { sidebarCollapsed: false }, session: { cookies: [] } },
@@ -97,7 +98,8 @@ function fixture(t) {
     } } };
   context.store = { save() { counts.save++; events.push({ channel: 'config-saved' }); } };
   context.shell = { async openPath() { return ''; } };
-  vm.runInContext(section(main, 'function setUpdateState(', 'function isGameContentFrame('), context);
+  vm.runInContext(section(main, 'function gameHostWindow(', 'function canOpenMiniWindow(') +
+    section(main, 'function setUpdateState(', 'function isGameContentFrame('), context);
   vm.runInContext(section(main, 'function normalizeOverlayState(', 'function applyOverlayBounds(') +
     section(main, 'async function showOverlay(', 'function updateLayout('), context);
   vm.runInContext(section(main, "ipcMain.handle('native-overlay:open',", "ipcMain.handle('native-overlay:clicker-respond',"), context);

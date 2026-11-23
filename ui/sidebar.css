@@ -420,7 +420,7 @@ h2 {
   width: min(520px, 42vw);
   margin-left: auto;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 70px;
+  grid-template-columns: 28px 28px minmax(0, 1fr) 70px;
   gap: 6px;
   -webkit-app-region: no-drag;
 }
@@ -452,6 +452,24 @@ h2 {
   stroke-linejoin: round;
   transform: rotate(-35deg);
   transition: transform 160ms ease;
+}
+
+.titlebar-symbol.has-image {
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+
+.mini-window-page .mini-window-controls {
+  -webkit-app-region: no-drag;
+}
+
+.mini-window-page #game-loading-surface {
+  right: 0;
+  bottom: 0;
 }
 
 .titlebar-icon-button:hover {

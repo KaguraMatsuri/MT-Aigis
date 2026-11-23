@@ -108,6 +108,7 @@ function native(h, options = {}) {
     SIDEBAR_TRANSITION_TIMEOUT: 600, sidebarTransition: null, sidebarTransitionSequence: 0,
     sidebarCollapsed: !!options.collapsed, sidebarTransitionActive: false, gameViewAttached: true,
     layoutPresentationTimer: null, overlayState: null, overlayView: null, overlayReady: null,
+    miniWindow: null, gameBackgroundActivity: null,
     gameContentReady: true, gameContentSize: options.gameSize || null, gameContentEpoch: 0, updatePrompt: null,
     currentConfig: { view: { sidebarCollapsed: !!options.collapsed } },
     clickerFrames: new Map(), clickerWarningAbort: null, stopGameClicker() {},
@@ -131,6 +132,7 @@ function native(h, options = {}) {
     ipcMain: { handle(name, callback) { handlers.set(name, callback); } },
   });
   vm.runInContext([
+    section(main, 'function gameHostWindow(', 'function canOpenMiniWindow('),
     section(main, 'function updateLayout(', 'function attachNavigationHandlers('),
     section(main, 'function applyGamePresentation(', 'function injectGameFocus('),
     section(main, 'function resetGameContent(', 'function markGameContentReady('),
