@@ -296,17 +296,20 @@ test('reads vault data once per status and includes it only for internal callers
   assert.equal('data' in vault.status(), false);
 });
 
-test('keeps the TOTP refresh when visible and pauses it when the sidebar is collapsed', () => {
+test('refreshes TOTP when visible and pauses it in collapsed and compact layouts', () => {
   const source = fs.readFileSync(path.join(root, 'ui/sidebar.js'), 'utf8');
+  const modeStart = source.indexOf('  function isMiniWindowMode(');
+  const mode = source.slice(modeStart, source.indexOf("  document.addEventListener('visibilitychange'", modeStart));
   const start = source.lastIndexOf('  setInterval(function () {');
   const timerSource = source.slice(start, source.indexOf('})();', start));
   let callback;
   let collapsed = false;
+  let compact = false;
   let codeRefreshes = 0;
   let progressUpdates = 0;
-  vm.runInNewContext(timerSource, {
+  vm.runInNewContext(mode + timerSource, {
     sidebarScrolling: false,
-    document: { body: { classList: { contains() { return collapsed; } } } },
+    document: { body: { classList: { contains(name) { return name === 'mini-window-page' ? compact : collapsed; } } } },
     byId() { return { classList: { contains() { return true; } } }; },
     updateTotpProgress() { progressUpdates++; },
     refreshVault() { codeRefreshes++; },
@@ -320,6 +323,11 @@ test('keeps the TOTP refresh when visible and pauses it when the sidebar is coll
   assert.equal(codeRefreshes, 1);
   assert.equal(progressUpdates, 1);
   collapsed = false;
+  compact = true;
+  callback();
+  assert.equal(codeRefreshes, 1);
+  assert.equal(progressUpdates, 1);
+  compact = false;
   callback();
   assert.equal(codeRefreshes, 2);
 });

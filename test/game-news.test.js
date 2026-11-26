@@ -163,10 +163,10 @@ test('shows game news on the game page and keeps network diagnostics in settings
   assert.match(main, /new WebContentsView\(/);
   assert.match(main, /createGameView\(\);\s*ensureOverlayView\(\);/);
   assert.match(main, /function ensureOverlayView\(\)[\s\S]*?backgroundThrottling: false/);
-  assert.match(main, /gameHostWindow\(\)\.contentView\.addChildView\(overlayView\);[\s\S]*?overlayView\.setVisible\(false\);/);
+  assert.match(main, /mainWindow\.contentView\.addChildView\(overlayView\);[\s\S]*?overlayView\.setVisible\(false\);/);
   assert.match(main, /function closeOverlay\(\)[\s\S]*?overlayView\.setVisible\(false\);/);
   assert.doesNotMatch(main, /function closeOverlay\(\)[\s\S]*?removeChildView\(overlayView\)/);
-  assert.match(main, /const host = gameHostWindow\(\);\s*host\.contentView\.addChildView\(overlayView\)/);
+  assert.equal((main.match(/\.contentView\.addChildView\(overlayView\)/g) || []).length, 1);
   assert.doesNotMatch(main, /capturePage\(|game-news:snapshot/);
   assert.doesNotMatch(renderer, /warmGameViewSnapshot|mouseenter.*snapshot/);
   assert.match(overlayPreload, /native-overlay:close/);

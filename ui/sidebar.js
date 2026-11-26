@@ -1483,6 +1483,11 @@
   api.on('browser:title', function (title) { byId('page-title').textContent = title || 'MT-Aigis'; });
   api.on('browser:error', function (message) { setRuntime(message || t('loadFailed'), true); });
   api.on('sidebar:state', function (state) { applySidebarState(!!state.collapsed, false); });
+  api.on('window:mini:state', function (state) {
+    if (state) return;
+    refreshBrowserState();
+    refreshCache(false);
+  });
   api.on('native-overlay:closed', function () { currentGameNewsUrl = ''; });
   api.on('telemetry:state', renderTelemetryState);
   api.on('update:state', updateUpdateState);
@@ -1514,23 +1519,28 @@
   refreshNetworkStatus(false);
   refreshGameNews(false);
   refreshCache(false);
+  function isMiniWindowMode() {
+    return document.body.classList.contains('mini-window-page');
+  }
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState !== 'hidden') {
+    if (document.visibilityState !== 'hidden' && !isMiniWindowMode()) {
       refreshBrowserState();
       refreshCache(false);
     }
   });
   setTimeout(function () { Object.keys(pingFields).forEach(runPing); }, 700);
   setInterval(function () {
-    if (!sidebarScrolling) refreshBrowserState(true);
+    if (!sidebarScrolling && !isMiniWindowMode()) refreshBrowserState(true);
   }, 2000);
   setInterval(function () {
-    if (!sidebarScrolling) refreshCache(false, true);
+    if (!sidebarScrolling && !isMiniWindowMode()) refreshCache(false, true);
   }, 15000);
-  setInterval(function () { refreshGameNews(false); }, 30 * 60 * 1000);
+  setInterval(function () {
+    if (!isMiniWindowMode()) refreshGameNews(false);
+  }, 30 * 60 * 1000);
   setInterval(function () {
     if (
-      !sidebarScrolling &&
+      !sidebarScrolling && !isMiniWindowMode() &&
       !document.body.classList.contains('sidebar-collapsed') &&
       byId('page-vault').classList.contains('active') &&
       byId('vault-edit').classList.contains('hidden')

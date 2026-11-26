@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, nativeImage } = require('electron');
 
 const keyIcons = new Map();
 let miniWindowIcon;
+let revealIcon;
 
 function namedIconData(name) {
   try {
@@ -26,6 +27,10 @@ contextBridge.exposeInMainWorld('mtAigis', {
   getMiniWindowIcon() {
     if (process.platform !== 'darwin') return '';
     return miniWindowIcon ??= namedIconData('fish');
+  },
+  getRevealIcon() {
+    if (process.platform !== 'darwin') return '';
+    return revealIcon ??= namedIconData('eye');
   },
   invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   on: (channel, listener) => {

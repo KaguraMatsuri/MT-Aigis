@@ -193,14 +193,19 @@ test('refreshes cache when returning to the game tab and suppresses a result aft
   assert.equal(h.node('cache-disk').writes, writes);
 });
 
-test('refreshes visible controls and cache when the document becomes visible again', async () => {
+test('refreshes visible controls and cache on reveal only in the regular layout', async () => {
   const h = uiHarness(); let onVisibility;
   h.document.addEventListener = (_event, callback) => { onVisibility = callback; };
-  vm.runInContext(section(sidebar, "  document.addEventListener('visibilitychange'",
+  vm.runInContext(section(sidebar, '  function isMiniWindowMode(',
     '  setTimeout(function () { Object.keys(pingFields)'), h.context);
   h.document.visibilityState = 'hidden'; onVisibility();
   assert.equal(h.calls.length, 0);
-  h.document.visibilityState = 'visible'; onVisibility(); await turn();
+  h.document.visibilityState = 'visible';
+  h.document.body.classList.toggle('mini-window-page', true);
+  onVisibility(); await turn();
+  assert.equal(h.calls.length, 0);
+  h.document.body.classList.toggle('mini-window-page', false);
+  onVisibility(); await turn();
   assert.deepEqual(h.calls, ['browser:state', 'cache:stats']);
 });
 

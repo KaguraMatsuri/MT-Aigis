@@ -467,11 +467,21 @@ h2 {
   transform: rotate(45deg) scaleX(-1);
 }
 
-.mini-window-page .mini-window-controls {
+body:not(.mini-window-page) .mini-window-controls,
+body.mini-window-page .chrome-title,
+body.mini-window-page .custom-url-control,
+body.mini-window-page #titlebar-double-click-zone,
+body.mini-window-page #btn-toggle-sidebar,
+body.mini-window-page #sidebar,
+body.mini-window-page .game-actions {
+  display: none;
+}
+
+.mini-window-controls {
   -webkit-app-region: no-drag;
 }
 
-.mini-window-page #game-loading-surface {
+body.mini-window-page #game-loading-surface {
   right: 0;
   bottom: 0;
 }
