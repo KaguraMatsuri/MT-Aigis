@@ -4,6 +4,10 @@
   const eye = document.getElementById('mini-reveal');
   const slider = document.getElementById('mini-opacity');
   const output = document.getElementById('mini-opacity-value');
+  const volume = document.getElementById('game-volume');
+  const volumeControls = volume.closest('.volume-control');
+  const regularVolumeSlot = volumeControls.parentElement;
+  const miniVolumeSlot = document.getElementById('mini-volume-slot');
   let opacityFrame = 0;
   let draggingOpacity = false;
   let miniState = null;
@@ -19,6 +23,8 @@
 
   const update = (changes) => api.invoke('window:mini:controls', changes).catch(() => null);
   function applyMode(state) {
+    const volumeSlot = state ? miniVolumeSlot : regularVolumeSlot;
+    if (volumeControls.parentElement !== volumeSlot) volumeSlot.append(volumeControls);
     miniState = state;
     document.body.classList.toggle('mini-window-page', !!state);
     if (opacityFrame) cancelAnimationFrame(opacityFrame);
@@ -56,12 +62,12 @@
       update({ opacity: slider.valueAsNumber });
     });
   });
-  slider.addEventListener('pointerdown', (event) => {
+  function startDrag(event) {
     if (!miniState || event.button !== 0) return;
-    slider.setPointerCapture(event.pointerId);
+    event.currentTarget.setPointerCapture(event.pointerId);
     draggingOpacity = true;
     update({ draggingOpacity: true });
-  });
+  }
   function finishDrag() {
     if (!draggingOpacity) return;
     draggingOpacity = false;
@@ -73,5 +79,8 @@
     finishDrag();
     eye.blur();
   });
-  slider.addEventListener('lostpointercapture', finishDrag);
+  for (const control of [slider, volume]) {
+    control.addEventListener('pointerdown', startDrag);
+    control.addEventListener('lostpointercapture', finishDrag);
+  }
 })();

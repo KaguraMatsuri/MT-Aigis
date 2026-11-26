@@ -468,6 +468,7 @@ h2 {
 }
 
 body:not(.mini-window-page) .mini-window-controls,
+body:not(.mini-window-page) #mini-volume-slot,
 body.mini-window-page .chrome-title,
 body.mini-window-page .custom-url-control,
 body.mini-window-page #titlebar-double-click-zone,
@@ -477,8 +478,31 @@ body.mini-window-page .game-actions {
   display: none;
 }
 
-.mini-window-controls {
+.mini-window-controls,
+#mini-volume-slot {
+  flex: 1 1 0;
+  min-width: 0;
   -webkit-app-region: no-drag;
+}
+
+body.mini-window-page #chrome-bar {
+  column-gap: 12px;
+}
+
+body.mini-window-page #chrome-bar .volume-control {
+  gap: 4px;
+}
+
+body.mini-window-page #chrome-bar .volume-control input[type="range"] {
+  flex: 1 1 0;
+  min-width: 16px;
+  max-width: 100px;
+}
+
+@media (max-width: 400px) {
+  body.mini-window-page #mini-volume-slot output {
+    display: none;
+  }
 }
 
 body.mini-window-page #game-loading-surface {
