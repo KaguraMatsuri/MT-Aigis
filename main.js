@@ -1104,6 +1104,7 @@ async function createMiniWindow(host, view) {
     trafficLightPosition: { x: 18, y: 16 },
     backgroundColor: gameFillColor(),
     resizable: true,
+    acceptFirstMouse: true,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'resources', 'mini-window-preload.js'),

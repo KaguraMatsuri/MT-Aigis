@@ -151,7 +151,7 @@ test('shows a new mini window with stealth enabled and hides only after the poin
 test('keeps a game drag visible outside the mini window until mouse release or cancellation', (t) => {
   t.mock.timers.enable({ apis: ['Date', 'setInterval'] });
   const window = new TestWindow();
-  const gameContents = new EventEmitter();
+  const gameContents = Object.assign(new EventEmitter(), { isFocused: () => true });
   const inside = { x: 150, y: 250 };
   const outside = { x: 10, y: 20 };
   let point = inside;
@@ -194,7 +194,12 @@ function hostFixture(loadFile = async () => {}, config = defaultConfig(), store 
   mainWindow.webContents.mainFrame.url = pathToFileURL(path.join(root, 'ui', 'index.html')).href;
   const gameView = {
     webContents: Object.assign(new EventEmitter(), {
-      isDestroyed: () => false, getURL: () => DEFAULT_URL, focus() {},
+      isDestroyed: () => false,
+      getURL: () => DEFAULT_URL,
+      focused: false,
+      focusCalls: 0,
+      isFocused() { return this.focused; },
+      focus() { this.focused = true; this.focusCalls++; },
     }),
   };
   const overlayView = { webContents: { isDestroyed: () => false, focus() {} } };
@@ -294,6 +299,30 @@ test('opens one mini window while the same view is still loading the game', asyn
   assert.deepEqual(mini.getContentSize(), [480, 368]);
   assert.equal(h.context.gameViewLoadingMasked, true);
   assert.equal(h.mainWindow.visible, false);
+});
+
+test('hands focus from the mini toolbar to the game on the first left press', async (t) => {
+  const h = hostFixture();
+  assert.equal(await h.handlers.get('window:mini:open')(h.eventFor(h.mainWindow)), true);
+  const mini = h.windows[0];
+  t.after(() => mini.close());
+  const contents = h.gameView.webContents;
+  contents.focused = false;
+  const priorCalls = contents.focusCalls;
+  const event = { preventDefault: () => assert.fail('The original game input must be delivered') };
+
+  mini.showInactive();
+  mini.webContents.emit('before-mouse-event', event, { type: 'mouseDown', button: 'left' });
+  contents.emit('before-mouse-event', event, { type: 'mouseMove', button: 'left' });
+  assert.equal(contents.focusCalls, priorCalls);
+
+  contents.emit('before-mouse-event', event, { type: 'mouseDown', button: 'left' });
+  assert.equal(contents.isFocused(), true);
+  assert.equal(contents.focusCalls, priorCalls + 1);
+  contents.emit('before-mouse-event', event, { type: 'mouseUp', button: 'left' });
+  contents.emit('before-mouse-event', event, { type: 'mouseDown', button: 'left' });
+  assert.equal(contents.focusCalls, priorCalls + 1);
+  assert.equal(mini.options.acceptFirstMouse, true);
 });
 
 test('keeps the main window visible if the mini shell fails or the view leaves the game during opening', async () => {
