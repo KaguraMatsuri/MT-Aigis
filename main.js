@@ -280,6 +280,7 @@ let gameBackgroundActivity = null;
 let gameView = null;
 let gameProxyBlocked = false;
 let gameProxyTask = null;
+let gameProxyChange = null;
 let gameSessionStartup = null;
 let overlayView = null;
 let overlayReady = null;
@@ -1268,7 +1269,7 @@ function createGameView() {
   }
   gameSession.setUserAgent(CHROME_UA, 'ja');
   gameSession.setPermissionRequestHandler((_, __, callback) => callback(false));
-  setGameProxyBlocked(gameSession, !!currentConfig.proxy?.enabled);
+  initializeGameProxyBlock(gameSession);
   gameSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
     details.requestHeaders['Accept-Language'] = 'ja,en-US;q=0.9,en;q=0.8';
     delete details.requestHeaders['X-Requested-With'];
@@ -1327,6 +1328,10 @@ async function initializeGameSession() {
   const view = gameView;
   if (gameProxyTask) await gameProxyTask.catch(() => {});
   if (!view || view !== gameView || view.webContents.isDestroyed()) return false;
+  if (!store.getStatus().healthy || gameProxyChange) {
+    sendToRenderer('browser:error');
+    return false;
+  }
   try {
     if (!await applyProxySettings()) return false;
   } catch (error) {
@@ -2705,17 +2710,66 @@ function setGameProxyBlocked(session, blocked) {
   gameProxyBlocked = blocked;
 }
 
+function initializeGameProxyBlock(session) {
+  setGameProxyBlocked(session, !!(gameProxyBlocked || gameProxyTask || gameProxyChange ||
+    currentConfig.proxy?.enabled || !store.getStatus().healthy));
+}
+
+async function unloadGameForProxyChange(view, change) {
+  const contents = view.webContents;
+  const url = contents.getURL();
+  if (url === 'about:blank' || (!url && !contents.isLoading())) return;
+  change.view = view;
+  change.url = isWebUrl(url) ? url : getHomeUrl();
+  const allowUnload = event => event.preventDefault();
+  contents.once('will-prevent-unload', allowUnload);
+  try {
+    await contents.loadURL('about:blank');
+    if (contents.getURL() !== 'about:blank') throw new Error('ERR_GAME_PAGE_STILL_ACTIVE');
+    change.blankIndex = contents.navigationHistory.getActiveIndex();
+  } finally {
+    contents.removeListener('will-prevent-unload', allowUnload);
+  }
+}
+
+function reloadGameAfterProxyChange(view, change) {
+  const contents = view.webContents;
+  const history = contents.navigationHistory;
+  contents.loadURL(change.url).catch(() => {
+    if (gameView === view) sendToRenderer('browser:error');
+  }).finally(() => {
+    if (!contents.isDestroyed() && history.getEntryAtIndex(change.blankIndex)?.url === 'about:blank') {
+      history.removeEntryAtIndex(change.blankIndex);
+    }
+  });
+}
+
+async function verifyGameProxyRoute(session) {
+  for (const url of ['http://proxy-check.invalid/', 'https://proxy-check.invalid/']) {
+    const route = await session.resolveProxy(url);
+    if (!route || route.split(';').some(entry => entry.trim() === 'DIRECT')) {
+      throw Object.assign(new Error('ERR_INVALID_GAME_PROXY'), { code: 'ERR_INVALID_GAME_PROXY' });
+    }
+  }
+}
+
 async function applyProxySettings(proxy = currentConfig.proxy, save = false) {
   const view = gameView;
   if (!view || view.webContents.isDestroyed() || gameProxyTask) return false;
   const rules = getGameProxyConfig(proxy);
   const session = view.webContents.session;
+  const changingRoute = save && (gameProxyBlocked ||
+    rules.proxyRules !== getGameProxyConfig(currentConfig.proxy).proxyRules);
+  if (changingRoute) gameProxyChange ||= {};
   if ((proxy?.enabled || currentConfig.proxy?.enabled) && !gameProxyBlocked) {
     setGameProxyBlocked(session, true);
   }
   const task = (async () => {
     try {
+      if (changingRoute) await unloadGameForProxyChange(view, gameProxyChange);
+      if (view !== gameView || view.webContents.isDestroyed()) return false;
       await session.setProxy(rules);
+      if (rules.mode === 'fixed_servers') await verifyGameProxyRoute(session);
     } catch (error) {
       if (gameProxyBlocked && view === gameView) await session.closeAllConnections().catch(() => {});
       throw error;
@@ -2728,6 +2782,11 @@ async function applyProxySettings(proxy = currentConfig.proxy, save = false) {
       currentConfig = updated;
     }
     if (gameProxyBlocked) setGameProxyBlocked(session, false);
+    if (changingRoute) {
+      const change = gameProxyChange;
+      gameProxyChange = null;
+      if (change.view === view && change.url) reloadGameAfterProxyChange(view, change);
+    }
     return true;
   })();
   gameProxyTask = task;
@@ -3139,7 +3198,7 @@ ipcMain.handle('config:get', () => {
 });
 
 ipcMain.handle('config:save', async (event, nextConfig) => {
-  if (!isWindowControlSender(event) || !gameView) return { ok: false };
+  if (!isWindowControlSender(event) || !gameView || !store.getStatus().healthy) return { ok: false };
   const view = gameView;
   const startup = gameSessionStartup;
   try {

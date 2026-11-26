@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -21,7 +22,8 @@ test('uses system settings by default and uses one explicit route for all game U
   assert.equal(getGameProxyConfig({ ...custom, host: '[::1]' }).proxyRules, 'socks5://[::1]:1080');
   for (const extras of [
     { scheme: 'unknown' }, { host: 'example.test,direct://' }, { host: '' },
-    { host: 'https://example.test' }, { port: '' }, { port: 0 }, { port: '65536' },
+    { host: 'https://example.test' }, { host: 'fe80::1%en0' }, { host: '[fe80::1%en0]' },
+    { port: '' }, { port: 0 }, { port: '65536' },
   ]) {
     assert.throws(() => getGameProxyConfig({ ...custom, ...extras }), { code: 'ERR_INVALID_GAME_PROXY' });
   }
@@ -36,7 +38,7 @@ function section(start, end) {
 
 function fixture(proxy, hold) {
   const events = [], handlers = new Map();
-  let failure;
+  let failure, healthy = true, resolution = 'SOCKS5 127.0.0.1:1080', url = '';
   const session = {
     webRequest: { onBeforeRequest(first, second) { events.push(second ? 'tracker-filter' : 'blocked'); } },
     async setProxy(rules) {
@@ -44,11 +46,24 @@ function fixture(proxy, hold) {
       if (hold) await hold;
       if (failure) throw failure;
     },
+    async resolveProxy() { return resolution; },
     async closeAllConnections() { events.push('connections-closed'); },
   };
+  const contents = Object.assign(new EventEmitter(), {
+    isDestroyed: () => false,
+    isLoading: () => false,
+    getURL: () => url,
+    async loadURL(next) { url = next; events.push(next === 'about:blank' ? 'unloaded' : 'reloaded'); },
+    navigationHistory: {
+      getActiveIndex: () => 1, getEntryAtIndex: () => ({ url: 'about:blank' }),
+      removeEntryAtIndex() { events.push('blank-removed'); },
+    },
+    session,
+  });
   const context = vm.createContext({
-    gameView: { webContents: { isDestroyed: () => false, session } },
+    gameView: { webContents: contents },
     gameProxyTask: null,
+    gameProxyChange: null,
     gameProxyBlocked: !!proxy.enabled,
     currentConfig: { proxy }, getGameProxyConfig, defaultConfig,
     TRACKER_RULES: ['https://tracker.test/*'], GAME_AUXILIARY_FRAME_RULES: [],
@@ -57,7 +72,9 @@ function fixture(proxy, hold) {
     preconnectGameOrigins() { events.push('preconnect'); },
     async restoreAuthCookies() { events.push('cookies'); },
     loadDirectGame() { events.push('load'); },
-    store: { save() { events.push('saved'); } },
+    store: { getStatus: () => ({ healthy }), save() { events.push('saved'); } },
+    isWebUrl: value => /^https?:/.test(value),
+    getHomeUrl: () => 'https://game.test',
     isWindowControlSender(event) { return event === 'trusted'; },
     ipcMain: { handle(channel, fn) { handlers.set(channel, fn); } },
   });
@@ -69,6 +86,9 @@ function fixture(proxy, hold) {
   );
   return {
     context, events, routesFail() { failure = new Error('fixture error'); },
+    unreadable() { healthy = false; },
+    route(value) { resolution = value; },
+    document(value) { url = value; },
     save(proxy, sender = 'trusted') { return handlers.get('config:save')(sender, { proxy }); }
   };
 }
@@ -129,13 +149,44 @@ test('a reopened view waits for the earlier switch on the shared session', async
   const switching = h.context.applyProxySettings(custom, true);
   await new Promise(setImmediate);
   h.context.gameView = { webContents: original.webContents };
-  h.context.gameProxyBlocked = false;
+  h.context.initializeGameProxyBlock(original.webContents.session);
+  assert.equal(h.context.gameProxyBlocked, true);
   const startup = h.context.initializeGameSession();
   await new Promise(setImmediate);
-  assert.deepEqual(h.events, ['blocked', 'fixed_servers']);
+  assert.deepEqual(h.events, ['blocked', 'fixed_servers', 'blocked']);
   resume();
   assert.equal(await switching, false);
-  assert.equal(await startup, true);
+  assert.equal(await startup, false);
+  assert.equal(h.context.gameProxyBlocked, true);
   assert.ok(!h.events.includes('saved'));
-  assert.deepEqual(h.events.slice(-5), ['system', 'connections-closed', 'preconnect', 'cookies', 'load']);
+  assert.ok(!h.events.includes('system') && !h.events.includes('load'));
+});
+
+test('blocks an unreadable configuration before picking a route or saving', async () => {
+  const h = fixture(defaultConfig().proxy);
+  h.unreadable();
+  h.context.initializeGameProxyBlock(h.context.gameView.webContents.session);
+  assert.equal(await h.context.initializeGameSession(), false);
+  assert.equal((await h.save(custom)).ok, false);
+  assert.deepEqual(h.events, ['blocked', 'browser:error']);
+});
+
+test('unloads an active page, rejects a direct or empty route, and reloads only after saving the repaired route', async () => {
+  const h = fixture(defaultConfig().proxy);
+  h.document('https://game.test/game');
+  h.context.gameSessionStartup = Promise.resolve(true);
+  for (const route of ['DIRECT', '']) {
+    h.route(route);
+    assert.equal((await h.save(custom)).ok, false);
+    assert.equal(h.context.gameProxyBlocked, true);
+    assert.ok(!h.events.includes('saved') && !h.events.includes('reloaded'));
+  }
+  assert.deepEqual(h.events.slice(0, 3), ['blocked', 'unloaded', 'fixed_servers']);
+  assert.equal(h.events.filter(event => event === 'unloaded').length, 1);
+  h.route('SOCKS5 127.0.0.1:1080');
+  assert.equal((await h.save(custom)).ok, true);
+  await new Promise(setImmediate);
+  assert.deepEqual(h.events.slice(-5), ['connections-closed', 'saved', 'tracker-filter', 'reloaded', 'blank-removed']);
+  assert.equal((await h.save(custom)).ok, true);
+  assert.equal(h.events.filter(event => event === 'unloaded').length, 1);
 });
