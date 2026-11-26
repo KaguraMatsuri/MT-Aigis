@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -87,10 +88,17 @@ function configKeyFixture(platform, legacy) {
       return require(name);
     },
   });
-  const envelope = exports.encryptEnvelope(Buffer.from(JSON.stringify({ ...exports.defaultConfig(), fixture: 'original' })), validKey);
-  const original = legacy ? Buffer.concat([
-    Buffer.from(envelope.iv, 'base64'), Buffer.from(envelope.tag, 'base64'), Buffer.from(envelope.data, 'base64'),
-  ]) : Buffer.from(JSON.stringify(envelope));
+  const plain = Buffer.from(JSON.stringify({ ...exports.defaultConfig(), fixture: 'original' }));
+  let original;
+  if (legacy) {
+    // A valid legacy IV may start with the same byte as a JSON object.
+    const iv = Buffer.alloc(12, 0x7b);
+    const cipher = crypto.createCipheriv('aes-256-gcm', validKey, iv);
+    const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+    original = Buffer.concat([iv, cipher.getAuthTag(), body]);
+  } else {
+    original = Buffer.from(JSON.stringify(exports.encryptEnvelope(plain, validKey)));
+  }
   disk.set('/virtual/config/config.enc', original);
   return {
     store: new exports.SecureConfigStore('/virtual/config'), original,
@@ -114,6 +122,7 @@ test('invalidates an unauthenticated key and recovers both configuration formats
         assert.equal(h.store.load().fixture, 'original');
         assert.equal(h.store.getStatus().healthy, true);
         assert.equal(h.keyReads, 2);
+        if (legacy) assert.equal(JSON.parse(h.readConfig()).version, 2);
         for (let i = 0; i < 10; i++) h.store.save({ fixture: i });
         assert.equal(h.keyReads, 2);
         assert.equal(h.restart().load().fixture, 9);
