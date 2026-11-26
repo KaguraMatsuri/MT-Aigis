@@ -148,6 +148,39 @@ test('shows a new mini window with stealth enabled and hides only after the poin
   assert.equal(window.visible, false);
 });
 
+test('keeps a game drag visible outside the mini window until mouse release or cancellation', (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'] });
+  const window = new TestWindow();
+  const gameContents = new EventEmitter();
+  const inside = { x: 150, y: 250 };
+  const outside = { x: 10, y: 20 };
+  let point = inside;
+  const controls = createMiniWindowControls(window, { getCursorScreenPoint: () => point }, true, gameContents);
+  t.after(() => controls.dispose());
+  window.emit('show');
+  t.mock.timers.tick(80);
+
+  gameContents.emit('before-mouse-event', {}, { type: 'mouseDown', button: 'left' });
+  point = outside;
+  t.mock.timers.tick(240);
+  assert.equal(window.visible, true);
+
+  gameContents.emit('before-mouse-event', {}, { type: 'mouseUp', button: 'left' });
+  t.mock.timers.tick(79);
+  assert.equal(window.visible, true);
+  t.mock.timers.tick(1);
+  assert.equal(window.visible, false);
+
+  point = inside;
+  t.mock.timers.tick(80);
+  assert.equal(window.visible, true);
+  gameContents.emit('before-mouse-event', {}, { type: 'mouseDown', button: 'left' });
+  point = outside;
+  gameContents.emit('blur');
+  t.mock.timers.tick(80);
+  assert.equal(window.visible, false);
+});
+
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
 function section(start, end) {
@@ -159,7 +192,11 @@ function section(start, end) {
 function hostFixture(loadFile = async () => {}, config = defaultConfig(), store = { save() {} }) {
   const mainWindow = new TestWindow({ width: 1320, height: 760 });
   mainWindow.webContents.mainFrame.url = pathToFileURL(path.join(root, 'ui', 'index.html')).href;
-  const gameView = { webContents: { isDestroyed: () => false, getURL: () => DEFAULT_URL, focus() {} } };
+  const gameView = {
+    webContents: Object.assign(new EventEmitter(), {
+      isDestroyed: () => false, getURL: () => DEFAULT_URL, focus() {},
+    }),
+  };
   const overlayView = { webContents: { isDestroyed: () => false, focus() {} } };
   mainWindow.pinned = true;
   mainWindow.contentView.addChildView(gameView);
@@ -220,6 +257,7 @@ test('opens one resizable mini window with the live game and moves both views ba
   assert.equal(mini.pinned, true);
   assert.equal(mini.options.resizable, true);
   assert.equal(h.mainWindow.visible, false);
+  assert.equal(h.gameView.webContents.listenerCount('before-mouse-event'), 1);
   const controls = h.handlers.get('window:mini:controls');
   assert.equal(controls(origin, { opacity: 30 }), null);
   assert.equal(controls(h.eventFor(mini), { opacity: 30 }).opacity, 30);
@@ -229,6 +267,7 @@ test('opens one resizable mini window with the live game and moves both views ba
   assert.equal(h.context.miniWindow, null);
   assert.equal(h.mainWindow.visible, true);
   assert.deepEqual(h.mainWindow.contentView.children, [h.gameView, h.overlayView]);
+  assert.equal(h.gameView.webContents.listenerCount('before-mouse-event'), 0);
   assert.deepEqual(h.activityHosts.map(a => a.active), [false, true]);
   assert.equal(h.activityHosts.at(-1).host, h.mainWindow);
 });

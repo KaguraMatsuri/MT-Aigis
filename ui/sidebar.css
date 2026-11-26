@@ -623,6 +623,7 @@ h2 {
 .secret-row:focus-visible,
 .game-news-row:focus-visible,
 .link-button:focus-visible,
+#mini-reveal:focus-visible,
 input:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--text) 18%, transparent);
   outline-offset: 1px;

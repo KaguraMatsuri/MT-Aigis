@@ -1142,7 +1142,7 @@ async function createMiniWindow(host, view) {
       return false;
     }
     stopGameClicker(true);
-    const controls = createMiniWindowControls(window, screen, currentConfig.view.miniWindowRevealOnHover);
+    const controls = createMiniWindowControls(window, screen, currentConfig.view.miniWindowRevealOnHover, view.webContents);
     miniWindow = { window, controls };
     window.webContents.send('window:mini:state', controls.update());
     moveGameViews(host, window);

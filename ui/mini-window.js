@@ -53,6 +53,9 @@
   }
   window.addEventListener('pointerup', finishDrag);
   window.addEventListener('pointercancel', finishDrag);
-  window.addEventListener('blur', finishDrag);
+  window.addEventListener('blur', () => {
+    finishDrag();
+    eye.blur();
+  });
   slider.addEventListener('lostpointercapture', finishDrag);
 })();
