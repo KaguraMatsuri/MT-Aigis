@@ -170,6 +170,26 @@ test('shows a new mini window with stealth enabled and hides only after the poin
   assert.equal(window.visible, false);
 });
 
+test('checks the live window bounds before hiding during a titlebar move', (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'] });
+  const window = new TestWindow();
+  let point = { x: 150, y: 220 };
+  const controls = createMiniWindowControls(window, { getCursorScreenPoint: () => point }, true);
+  t.after(() => controls.dispose());
+  t.mock.timers.tick(80);
+  // The system geometry can already be updated when the JS move event is still queued.
+  window.bounds.x = 500;
+  point = { x: 700, y: 220 };
+  t.mock.timers.tick(80);
+  assert.equal(window.visible, true);
+  window.emit('will-move');
+  point = { x: 20, y: 20 };
+  t.mock.timers.tick(80);
+  assert.equal(window.visible, true);
+  t.mock.timers.tick(80);
+  assert.equal(window.visible, false);
+});
+
 test('keeps a game drag visible outside the mini window until mouse release or cancellation', (t) => {
   t.mock.timers.enable({ apis: ['Date', 'setInterval'] });
   const window = new TestWindow();
