@@ -1095,6 +1095,24 @@ select {
   accent-color: var(--accent);
 }
 
+#proxy-scheme-picker {
+  margin: 12px 0;
+}
+
+#proxy-scheme-summary {
+  list-style-position: inside;
+  padding: 10px;
+  cursor: pointer;
+}
+
+#proxy-scheme-current {
+  float: right;
+}
+
+#proxy-scheme-picker .nav-grid {
+  margin-top: 8px;
+}
+
 #proxy-endpoint-fields {
   min-width: 0;
   margin: 0;

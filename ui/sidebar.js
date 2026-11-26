@@ -816,13 +816,20 @@
   function installProxySettings(configTask) {
     var form = byId('proxy-settings');
     var enabled = byId('proxy-enabled');
+    var picker = byId('proxy-scheme-picker');
+    var summary = byId('proxy-scheme-summary');
+    var currentScheme = byId('proxy-scheme-current');
+    var choices = picker.querySelectorAll('[data-proxy-scheme]');
     var endpoint = byId('proxy-endpoint-fields');
-    var scheme = byId('proxy-scheme');
     var host = byId('proxy-host');
     var port = byId('proxy-port');
+    var actions = byId('proxy-actions');
+    var cancel = byId('proxy-cancel');
     var save = byId('proxy-save');
     var message = byId('proxy-message');
     var saved = null;
+    var scheme = 'http';
+    var endpointEditing = false;
     var saving = false;
     var canRetry = false;
 
@@ -837,35 +844,75 @@
       if (!enabled.checked) return { ...saved, enabled: false };
       return {
         enabled: true,
-        scheme: scheme.value,
+        scheme: scheme,
         host: host.value.trim(),
         port: port.value ? String(port.valueAsNumber) : '',
       };
     }
 
     function syncControls() {
-      enabled.disabled = !saved || saving;
-      endpoint.disabled = enabled.disabled || !enabled.checked;
-      endpoint.classList.toggle('hidden', !enabled.checked);
+      var locked = !saved || saving;
+      var showEndpoint = enabled.checked && endpointEditing;
+      enabled.disabled = locked;
+      summary.setAttribute('aria-disabled', String(locked));
+      endpoint.disabled = locked || !showEndpoint;
+      endpoint.classList.toggle('hidden', !showEndpoint);
+      currentScheme.textContent = scheme.toUpperCase();
+      choices.forEach(function (button) {
+        button.disabled = locked;
+        button.classList.toggle('primary', button.dataset.proxyScheme === scheme);
+      });
       var next = draft();
       var changed = saved && ['enabled', 'scheme', 'host', 'port'].some(function (key) {
         return next[key] !== saved[key];
       });
-      save.disabled = enabled.disabled || (!changed && !canRetry);
+      actions.classList.toggle('hidden', !(showEndpoint || changed || canRetry));
+      cancel.disabled = locked;
+      save.disabled = locked || (enabled.checked && !endpointEditing && changed) || (!changed && !canRetry);
+    }
+
+    function resetEditor() {
+      enabled.checked = saved.enabled;
+      scheme = ['http', 'https', 'socks5'].includes(saved.scheme) ? saved.scheme : 'http';
+      host.value = saved.host;
+      port.value = saved.port;
+      endpointEditing = false;
+      picker.open = false;
+      syncControls();
     }
 
     configTask.then(function (config) {
       var proxy = config.proxy;
       saved = { enabled: proxy.enabled === true, scheme: proxy.scheme, host: proxy.host, port: String(proxy.port) };
-      enabled.checked = saved.enabled;
-      scheme.value = saved.scheme;
-      host.value = saved.host;
-      port.value = saved.port;
-      syncControls();
+      resetEditor();
     }).catch(function () {
       showMessage('readFailed', true);
     });
 
+    summary.addEventListener('click', function (event) {
+      if (!saved || saving) event.preventDefault();
+    });
+    choices.forEach(function (button) {
+      button.addEventListener('click', function () {
+        scheme = button.dataset.proxyScheme;
+        enabled.checked = true;
+        endpointEditing = true;
+        picker.open = false;
+        showMessage('');
+        syncControls();
+        host.focus();
+      });
+    });
+    enabled.addEventListener('change', function () {
+      endpointEditing = false;
+      picker.open = enabled.checked;
+      syncControls();
+    });
+    cancel.addEventListener('click', function () {
+      resetEditor();
+      showMessage(canRetry ? 'pingFailed' : '', canRetry);
+      summary.focus();
+    });
     form.addEventListener('input', function () {
       showMessage('');
       syncControls();
@@ -879,10 +926,15 @@
       syncControls();
       var result = await api.invoke('config:save', { proxy: next }).catch(function () { return null; });
       canRetry = !result || !result.ok;
-      if (!canRetry) saved = next;
       saving = false;
       showMessage(canRetry ? 'pingFailed' : 'saved', canRetry);
-      syncControls();
+      if (canRetry) {
+        syncControls();
+      } else {
+        saved = next;
+        resetEditor();
+        summary.focus();
+      }
     });
   }
 

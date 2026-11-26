@@ -260,15 +260,18 @@
             <h2 id="proxy-settings-title"><label for="proxy-enabled" data-i18n="proxyTitle">自定义代理</label></h2>
             <input id="proxy-enabled" type="checkbox" disabled>
           </div>
-          <fieldset id="proxy-endpoint-fields" class="hidden" disabled>
-            <label for="proxy-scheme">
+          <details id="proxy-scheme-picker">
+            <summary id="proxy-scheme-summary" class="control" aria-disabled="true">
               <span data-i18n="proxyScheme">协议</span>
-              <select id="proxy-scheme" required>
-                <option value="http">HTTP</option>
-                <option value="https">HTTPS</option>
-                <option value="socks5">SOCKS5</option>
-              </select>
-            </label>
+              <strong id="proxy-scheme-current">HTTP</strong>
+            </summary>
+            <div class="nav-grid">
+              <button type="button" class="control" data-proxy-scheme="http">HTTP</button>
+              <button type="button" class="control" data-proxy-scheme="https">HTTPS</button>
+              <button type="button" class="control" data-proxy-scheme="socks5">SOCKS5</button>
+            </div>
+          </details>
+          <fieldset id="proxy-endpoint-fields" class="hidden" disabled>
             <label for="proxy-host">
               <span data-i18n="proxyHost">域名或 IP</span>
               <input id="proxy-host" type="text" maxlength="254" autocomplete="off" spellcheck="false" required>
@@ -278,8 +281,13 @@
               <input id="proxy-port" type="number" min="1" max="65535" step="1" required>
             </label>
           </fieldset>
-          <p id="proxy-reload-hint" class="runtime" data-i18n="proxyReloadHint">切换线路会重新加载一次游戏页面，可能打断当前操作。</p>
-          <button id="proxy-save" type="submit" class="control primary" aria-describedby="proxy-reload-hint" data-i18n="save" disabled>保存</button>
+          <div id="proxy-actions" class="hidden">
+            <p id="proxy-reload-hint" class="runtime" data-i18n="proxyReloadHint">切换线路会重新加载一次游戏页面，可能打断当前操作。</p>
+            <div class="form-actions">
+              <button id="proxy-cancel" type="button" class="control" data-i18n="cancel">取消</button>
+              <button id="proxy-save" type="submit" class="control primary" aria-describedby="proxy-reload-hint" data-i18n="save" disabled>保存</button>
+            </div>
+          </div>
           <p id="proxy-message" class="runtime" role="status"></p>
         </form>
 
