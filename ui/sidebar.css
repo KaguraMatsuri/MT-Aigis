@@ -482,7 +482,6 @@ body.mini-window-page .game-actions {
 #mini-volume-slot {
   flex: 1 1 0;
   min-width: 0;
-  -webkit-app-region: no-drag;
 }
 
 body.mini-window-page #chrome-bar {
@@ -497,6 +496,7 @@ body.mini-window-page #chrome-bar .volume-control input[type="range"] {
   flex: 1 1 0;
   min-width: 16px;
   max-width: 100px;
+  -webkit-app-region: no-drag;
 }
 
 @media (max-width: 400px) {
