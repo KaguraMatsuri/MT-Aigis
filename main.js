@@ -276,6 +276,7 @@ let currentConfig = normalizeConfig(store.load());
 let mainWindow = null;
 let miniWindowMode = null;
 let miniWindowTask = null;
+let miniWindowOpacity = 100;
 let gameBackgroundActivity = null;
 let gameView = null;
 let gameProxyBlocked = false;
@@ -1153,10 +1154,12 @@ async function enterMiniWindow(window, view) {
   }
   try {
     stopGameClicker(true);
-    mode.controls = createMiniWindowControls(window, screen, currentConfig.view.miniWindowRevealOnHover, view.webContents);
+    mode.controls = createMiniWindowControls(
+      window, screen, currentConfig.view.miniWindowRevealOnHover, view.webContents, miniWindowOpacity
+    );
     miniWindowMode = mode;
+    window.setOpacity(miniWindowOpacity / 100);
     sendToRenderer('window:mini:state', mode.controls.update());
-    window.setOpacity(1);
     if (window.isMaximized()) window.unmaximize();
     window.setMinimumSize(Math.min(width, 320), Math.min(height, TOP_BAR_H + 180));
     window.setContentBounds({
@@ -2932,7 +2935,9 @@ ipcMain.handle('window:mini:controls', (event, changes) => {
     store.save(updated);
     currentConfig = updated;
   }
-  return miniWindowMode.controls.update(changes);
+  const state = miniWindowMode.controls.update(changes);
+  miniWindowOpacity = state.opacity;
+  return state;
 });
 
 ipcMain.handle('browser:custom-url:set', (event, rawUrl) => {

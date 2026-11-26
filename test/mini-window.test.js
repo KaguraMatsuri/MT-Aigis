@@ -232,6 +232,7 @@ function section(start, end) {
 }
 
 function hostFixture(t, { config = defaultConfig(), store = { save() {} } } = {}) {
+  const app = new EventEmitter();
   const mainWindow = new TestWindow({ width: 1320, height: 760, minWidth: 900, minHeight: 620 });
   mainWindow.webContents.mainFrame.url = pathToFileURL(path.join(root, 'ui', 'index.html')).href;
   const gameView = {
@@ -254,7 +255,7 @@ function hostFixture(t, { config = defaultConfig(), store = { save() {} } } = {}
     path, pathToFileURL, __dirname: root, process: { platform: 'darwin' }, TOP_BAR_H: 48,
     BOTTOM_BAR_H: 52, SIDEBAR_OPEN_WIDTH: 360, SIDEBAR_CLOSED_WIDTH: 44, sidebarCollapsed: false,
     mainWindow, gameView, overlayView, currentConfig: config, store, setTimeout, clearTimeout,
-    miniWindowMode: null, miniWindowTask: null,
+    app, miniWindowMode: null, miniWindowTask: null, miniWindowOpacity: 100,
     gameContentReady: true, gameContentSize: { width: 960, height: 640 }, gameContentEpoch: 0,
     gameViewLoadingMasked: false, gameViewFallbackHidden: false,
     overlayState: null, updatePrompt: null, clickerWarningTask: null, sidebarTransitionActive: false, quitAfterFlush: false,
@@ -273,6 +274,7 @@ function hostFixture(t, { config = defaultConfig(), store = { save() {} } } = {}
     section('function applyGameViewBounds(', 'function attachNavigationHandlers('),
     section('function isWindowControlSender(', "ipcMain.handle('browser:custom-url:set'"),
     section("  mainWindow.on('close',", "  mainWindow.on('closed',"),
+    section("  app.on('activate',", "\n});\n\napp.on('window-all-closed'"),
   ].join('\n'), context);
   t.after(() => context.miniWindowMode?.controls.dispose());
   const event = { sender: mainWindow.webContents, senderFrame: mainWindow.webContents.mainFrame };
@@ -282,7 +284,7 @@ function hostFixture(t, { config = defaultConfig(), store = { save() {} } } = {}
     mainWindow.close();
     return context.miniWindowTask;
   };
-  return { context, mainWindow, gameView, overlayView, open, controls, close, event, handlers };
+  return { app, context, mainWindow, gameView, overlayView, open, controls, close, event, handlers };
 }
 
 test('resizes and restores the same window without moving the live game or overlay', async (t) => {
@@ -453,6 +455,29 @@ test('persists only changes to the stealth preference and restores it from encry
   assert.equal(await restarted.open(), true);
   assert.equal(restarted.mainWindow.messages[0].state.revealOnHover, false);
   assert.equal(restarted.mainWindow.messages[0].state.opacity, 100);
+});
+
+test('restores the mini opacity after Dock activation and resets it in a new app session', async (t) => {
+  let writes = 0;
+  const h = hostFixture(t, { store: { save() { writes++; } } });
+  assert.equal(await h.open(), true);
+  assert.equal(h.controls({ opacity: 42 }).opacity, 42);
+  h.app.emit('activate');
+  await h.context.miniWindowTask;
+  assert.equal(h.mainWindow.getOpacity(), 1);
+  assert.equal(await h.open(), true);
+  assert.equal(h.mainWindow.getOpacity(), 0.42);
+  assert.equal(h.mainWindow.messages.at(-1).state.opacity, 42);
+  h.controls({ opacity: 100 });
+  assert.equal(await h.close(), true);
+  assert.equal(await h.open(), true);
+  assert.equal(h.mainWindow.getOpacity(), 1);
+  assert.equal(h.controls({ opacity: 67 }).opacity, 67);
+  assert.equal(writes, 0);
+
+  const restarted = hostFixture(t, { config: h.context.currentConfig });
+  assert.equal(await restarted.open(), true);
+  assert.equal(restarted.controls().opacity, 100);
 });
 
 test('keeps the visible stealth setting when encrypted storage refuses the change', async (t) => {
