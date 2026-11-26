@@ -255,6 +255,34 @@
           </div>
         </section>
 
+        <form id="proxy-settings" class="card" aria-labelledby="proxy-settings-title">
+          <div class="card-head">
+            <h2 id="proxy-settings-title"><label for="proxy-enabled" data-i18n="proxyTitle">自定义代理</label></h2>
+            <input id="proxy-enabled" type="checkbox" disabled>
+          </div>
+          <fieldset id="proxy-endpoint-fields" class="hidden" disabled>
+            <label for="proxy-scheme">
+              <span data-i18n="proxyScheme">协议</span>
+              <select id="proxy-scheme" required>
+                <option value="http">HTTP</option>
+                <option value="https">HTTPS</option>
+                <option value="socks5">SOCKS5</option>
+              </select>
+            </label>
+            <label for="proxy-host">
+              <span data-i18n="proxyHost">域名或 IP</span>
+              <input id="proxy-host" type="text" maxlength="254" autocomplete="off" spellcheck="false" required>
+            </label>
+            <label for="proxy-port">
+              <span data-i18n="proxyPort">端口</span>
+              <input id="proxy-port" type="number" min="1" max="65535" step="1" required>
+            </label>
+          </fieldset>
+          <p id="proxy-reload-hint" class="runtime" data-i18n="proxyReloadHint">切换线路会重新加载一次游戏页面，可能打断当前操作。</p>
+          <button id="proxy-save" type="submit" class="control primary" aria-describedby="proxy-reload-hint" data-i18n="save" disabled>保存</button>
+          <p id="proxy-message" class="runtime" role="status"></p>
+        </form>
+
         <section class="card">
           <div class="card-head">
             <div>

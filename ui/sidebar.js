@@ -123,6 +123,11 @@
       dmmIpWarning: 'DMM 通常要求日本出口 IP，请切换节点后 Reload。',
       networkRefreshed: '网络信息已刷新',
       networkFailed: '检测失败',
+      proxyTitle: '自定义代理',
+      proxyScheme: '协议',
+      proxyHost: '域名或 IP',
+      proxyPort: '端口',
+      proxyReloadHint: '切换线路会重新加载一次游戏页面，可能打断当前操作。',
       pingFailed: '失败',
       readFailed: '读取失败',
       vaultMissing: '密码库未创建',
@@ -249,6 +254,11 @@
       dmmIpWarning: 'DMM 通常要求日本出口 IP，請切換節點後重新載入。',
       networkRefreshed: '網路資訊已重新整理',
       networkFailed: '偵測失敗',
+      proxyTitle: '自訂代理',
+      proxyScheme: '協定',
+      proxyHost: '網域名稱或 IP',
+      proxyPort: '連接埠',
+      proxyReloadHint: '切換連線會重新載入一次遊戲頁面，可能中斷目前的操作。',
       pingFailed: '失敗',
       readFailed: '讀取失敗',
       vaultMissing: '密碼庫未建立',
@@ -375,6 +385,11 @@
       dmmIpWarning: 'DMM usually requires a Japan exit IP. Switch node, then Reload.',
       networkRefreshed: 'Network info refreshed',
       networkFailed: 'Check failed',
+      proxyTitle: 'Custom proxy',
+      proxyScheme: 'Protocol',
+      proxyHost: 'Domain name or IP',
+      proxyPort: 'Port',
+      proxyReloadHint: 'Switching connections reloads the game page and may interrupt what you are doing.',
       pingFailed: 'Failed',
       readFailed: 'Read failed',
       vaultMissing: 'Vault not created',
@@ -501,6 +516,11 @@
       dmmIpWarning: 'DMM は通常、日本の出口 IP が必要です。ノードを切り替えて Reload してください。',
       networkRefreshed: 'ネットワーク情報を更新しました',
       networkFailed: '確認失敗',
+      proxyTitle: 'カスタムプロキシ',
+      proxyScheme: 'プロトコル',
+      proxyHost: 'ドメイン名または IP',
+      proxyPort: 'ポート',
+      proxyReloadHint: '接続を切り替えるとゲームページが再読み込みされ、操作が中断されることがあります。',
       pingFailed: '失敗',
       readFailed: '読み取り失敗',
       vaultMissing: 'パスワード未作成',
@@ -791,6 +811,79 @@
       if (showMessage) setRuntime(errorText(error), true);
     }).finally(function () { networkStatusTask = null; });
     return networkStatusTask;
+  }
+
+  function installProxySettings(configTask) {
+    var form = byId('proxy-settings');
+    var enabled = byId('proxy-enabled');
+    var endpoint = byId('proxy-endpoint-fields');
+    var scheme = byId('proxy-scheme');
+    var host = byId('proxy-host');
+    var port = byId('proxy-port');
+    var save = byId('proxy-save');
+    var message = byId('proxy-message');
+    var saved = null;
+    var saving = false;
+    var canRetry = false;
+
+    function showMessage(key, isError) {
+      if (key) message.dataset.i18n = key;
+      else delete message.dataset.i18n;
+      message.textContent = key ? t(key) : '';
+      message.classList.toggle('error', !!isError);
+    }
+
+    function draft() {
+      if (!enabled.checked) return { ...saved, enabled: false };
+      return {
+        enabled: true,
+        scheme: scheme.value,
+        host: host.value.trim(),
+        port: port.value ? String(port.valueAsNumber) : '',
+      };
+    }
+
+    function syncControls() {
+      enabled.disabled = !saved || saving;
+      endpoint.disabled = enabled.disabled || !enabled.checked;
+      endpoint.classList.toggle('hidden', !enabled.checked);
+      var next = draft();
+      var changed = saved && ['enabled', 'scheme', 'host', 'port'].some(function (key) {
+        return next[key] !== saved[key];
+      });
+      save.disabled = enabled.disabled || (!changed && !canRetry);
+    }
+
+    configTask.then(function (config) {
+      var proxy = config.proxy;
+      saved = { enabled: proxy.enabled === true, scheme: proxy.scheme, host: proxy.host, port: String(proxy.port) };
+      enabled.checked = saved.enabled;
+      scheme.value = saved.scheme;
+      host.value = saved.host;
+      port.value = saved.port;
+      syncControls();
+    }).catch(function () {
+      showMessage('readFailed', true);
+    });
+
+    form.addEventListener('input', function () {
+      showMessage('');
+      syncControls();
+    });
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (save.disabled) return;
+      var next = draft();
+      saving = true;
+      showMessage('');
+      syncControls();
+      var result = await api.invoke('config:save', { proxy: next }).catch(function () { return null; });
+      canRetry = !result || !result.ok;
+      if (!canRetry) saved = next;
+      saving = false;
+      showMessage(canRetry ? 'pingFailed' : 'saved', canRetry);
+      syncControls();
+    });
   }
 
   function renderGameNews(state) {
@@ -1497,7 +1590,9 @@
   installClickerControls();
   api.invoke('audio:state').then(renderAudioState).catch(function (error) { setRuntime(errorText(error), true); });
 
-  api.invoke('config:get').then(function (config) {
+  var configTask = api.invoke('config:get');
+  installProxySettings(configTask);
+  configTask.then(function (config) {
     renderClicker(config.clicker, true);
     applySidebarState(!!(config.view && config.view.sidebarCollapsed), false);
     updateScrollControl(config.view && config.view.scrollLevel || 5);
@@ -1512,7 +1607,7 @@
       byId('about-author').textContent = config.app.author;
     }
     renderTelemetryState(config.telemetry);
-  });
+  }).catch(function (error) { setRuntime(errorText(error), true); });
   api.invoke('update:state').then(updateUpdateState);
   refreshVault();
   refreshBrowserState();
