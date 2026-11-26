@@ -4,7 +4,7 @@
 
 千年戦争アイギス（Millennium War Aigis）向けの非公式 macOS クライアントです。
 
-<img width="3456" height="2160" alt="MT-Aigis running Millennium War Aigis on macOS" src="https://github.com/user-attachments/assets/feacd0f6-6de9-4831-be2f-2f18cccdabb4" />
+![MT-Aigis running Millennium War Aigis on macOS](./.github/assets/readme-screenshot.png)
 
 
 [中文](#中文) | [繁體中文](#繁體中文) | [English](#english) | [下载最新版本 / Download](https://github.com/KaguraMatsuri/MT-Aigis/releases/latest)
@@ -36,7 +36,9 @@
 - [功能] 监测出口 IP, 提供对不同域名的 Ping 检测功能.
 - [功能] 自动检测并提取官方公告.
 - [功能] 自定义游戏链接, 可以加载其他版本 Aigis(虽然有适配但因合规原因不建议加载Fanza版哟).
-- [规划更新] 自定义代理. 指针灵敏度. 更现代化的GUI.
+- [功能] 自定义代理.
+- [功能] 摸鱼模式.
+- [规划更新] 指针灵敏度. 更现代化的GUI.
 
 ### 安装提示
 
@@ -75,7 +77,9 @@ xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
 - [功能] 監測出口 IP，提供不同網域的 Ping 檢測功能。
 - [功能] 自動偵測並擷取官方公告。
 - [功能] 自訂遊戲連結，可以載入其他版本的 Aigis（雖然有適配，但因合規原因不建議載入 Fanza 版喲）。
-- [規劃更新] 自訂代理、游標靈敏度、更現代化的 GUI。
+- [功能] 自訂代理.
+- [功能] 摸魚模式.
+- [規劃更新] 游標靈敏度、更現代化的 GUI。
 
 ### 安裝提示
 
@@ -114,7 +118,9 @@ If you need anything, feel free to reach me through NGA, Tieba, or QQ (128396219
 - [Feature] View the public IP address and test the connection to different domains.
 - [Feature] Automatically detect and retrieve official announcements.
 - [Feature] Load other Aigis versions with a custom game URL. Although adapted, loading the Fanza version is not recommended for compliance reasons.
-- [Planned] Custom proxy, pointer sensitivity, and a more modern GUI.
+- [Feature] Custom proxy.
+- [Feature] Mini Window mode.
+- [Planned] Pointer sensitivity and a more modern GUI.
 
 ### Installation Note
 
