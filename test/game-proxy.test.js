@@ -39,8 +39,10 @@ function section(start, end) {
 function fixture(proxy, hold) {
   const events = [], handlers = new Map();
   let failure, healthy = true, resolution = 'SOCKS5 127.0.0.1:1080', url = '';
+  let workers = {}, attached = false, delayReload = false, cancelReload;
   const session = {
     webRequest: { onBeforeRequest(first, second) { events.push(second ? 'tracker-filter' : 'blocked'); } },
+    serviceWorkers: { getAllRunning: () => workers },
     async setProxy(rules) {
       events.push(rules.mode);
       if (hold) await hold;
@@ -51,9 +53,31 @@ function fixture(proxy, hold) {
   };
   const contents = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
-    isLoading: () => false,
+    isLoading: () => !!cancelReload,
     getURL: () => url,
-    async loadURL(next) { url = next; events.push(next === 'about:blank' ? 'unloaded' : 'reloaded'); },
+    async loadURL(next) {
+      if (next !== 'about:blank' && delayReload) {
+        delayReload = false;
+        events.push('reload-pending');
+        return new Promise(resolve => { cancelReload = resolve; });
+      }
+      url = next;
+      events.push(next === 'about:blank' ? 'unloaded' : 'reloaded');
+    },
+    stop() {
+      events.push('stopped-navigation');
+      cancelReload?.();
+      cancelReload = null;
+    },
+    debugger: {
+      isAttached: () => attached,
+      attach() { attached = true; },
+      detach() { attached = false; },
+      async sendCommand(command) {
+        events.push(command);
+        if (command === 'ServiceWorker.stopAllWorkers') workers = {};
+      },
+    },
     navigationHistory: {
       getActiveIndex: () => 1, getEntryAtIndex: () => ({ url: 'about:blank' }),
       removeEntryAtIndex() { events.push('blank-removed'); },
@@ -64,6 +88,8 @@ function fixture(proxy, hold) {
     gameView: { webContents: contents },
     gameProxyTask: null,
     gameProxyChange: null,
+    gameProxyReload: null,
+    gameBackgroundActivity: null,
     gameProxyBlocked: !!proxy.enabled,
     currentConfig: { proxy }, getGameProxyConfig, defaultConfig,
     TRACKER_RULES: ['https://tracker.test/*'], GAME_AUXILIARY_FRAME_RULES: [],
@@ -89,6 +115,8 @@ function fixture(proxy, hold) {
     unreadable() { healthy = false; },
     route(value) { resolution = value; },
     document(value) { url = value; },
+    delayNextReload() { delayReload = true; },
+    startWorker() { workers = { 1: {} }; },
     save(proxy, sender = 'trusted') { return handlers.get('config:save')(sender, { proxy }); }
   };
 }
@@ -189,4 +217,30 @@ test('unloads an active page, rejects a direct or empty route, and reloads only 
   assert.deepEqual(h.events.slice(-5), ['connections-closed', 'saved', 'tracker-filter', 'reloaded', 'blank-removed']);
   assert.equal((await h.save(custom)).ok, true);
   assert.equal(h.events.filter(event => event === 'unloaded').length, 1);
+});
+
+test('a later route cancels a pending reload and uses the same resume URL', async () => {
+  const h = fixture(defaultConfig().proxy);
+  h.context.gameSessionStartup = Promise.resolve(true);
+  h.document('https://game.test/game');
+  h.delayNextReload();
+  assert.equal((await h.save(custom)).ok, true);
+  assert.equal(h.context.gameView.webContents.getURL(), 'about:blank');
+  assert.equal((await h.save({ ...custom, port: '1081' })).ok, true);
+  await new Promise(setImmediate);
+  assert.equal(h.context.gameView.webContents.getURL(), 'https://game.test/game');
+  const stopped = h.events.indexOf('stopped-navigation');
+  assert.ok(stopped >= 0 && stopped < h.events.lastIndexOf('fixed_servers'));
+});
+
+test('stops the session worker after unloading and before applying the new route', async () => {
+  const h = fixture(defaultConfig().proxy);
+  h.context.gameSessionStartup = Promise.resolve(true);
+  h.document('https://game.test/game');
+  h.startWorker();
+  assert.equal((await h.save(custom)).ok, true);
+  assert.deepEqual(h.events.slice(0, 5), [
+    'blocked', 'unloaded', 'ServiceWorker.enable', 'ServiceWorker.stopAllWorkers', 'fixed_servers',
+  ]);
+  assert.equal(h.context.gameView.webContents.debugger.isAttached(), false);
 });

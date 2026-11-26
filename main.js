@@ -281,6 +281,7 @@ let gameView = null;
 let gameProxyBlocked = false;
 let gameProxyTask = null;
 let gameProxyChange = null;
+let gameProxyReload = null;
 let gameSessionStartup = null;
 let overlayView = null;
 let overlayReady = null;
@@ -2718,7 +2719,11 @@ function initializeGameProxyBlock(session) {
 async function unloadGameForProxyChange(view, change) {
   const contents = view.webContents;
   const url = contents.getURL();
-  if (url === 'about:blank' || (!url && !contents.isLoading())) return;
+  if (url === 'about:blank') {
+    if (contents.isLoading()) contents.stop();
+    return;
+  }
+  if (!url && !contents.isLoading()) return;
   change.view = view;
   change.url = isWebUrl(url) ? url : getHomeUrl();
   const allowUnload = event => event.preventDefault();
@@ -2735,13 +2740,36 @@ async function unloadGameForProxyChange(view, change) {
 function reloadGameAfterProxyChange(view, change) {
   const contents = view.webContents;
   const history = contents.navigationHistory;
+  gameProxyReload = change;
   contents.loadURL(change.url).catch(() => {
-    if (gameView === view) sendToRenderer('browser:error');
+    if (gameProxyReload === change && gameView === view) sendToRenderer('browser:error');
   }).finally(() => {
+    if (gameProxyReload !== change) return;
+    gameProxyReload = null;
     if (!contents.isDestroyed() && history.getEntryAtIndex(change.blankIndex)?.url === 'about:blank') {
       history.removeEntryAtIndex(change.blankIndex);
     }
   });
+}
+
+async function stopGameProxyWorkers(contents) {
+  const workers = contents.session.serviceWorkers;
+  if (!Object.keys(workers.getAllRunning()).length) return;
+  await gameBackgroundActivity?.sync();
+  const debuggerApi = contents.debugger;
+  const attachedHere = !debuggerApi.isAttached();
+  if (attachedHere) debuggerApi.attach('1.3');
+  try {
+    await debuggerApi.sendCommand('ServiceWorker.enable');
+    await debuggerApi.sendCommand('ServiceWorker.stopAllWorkers');
+    const deadline = Date.now() + 3000;
+    while (Object.keys(workers.getAllRunning()).length) {
+      if (Date.now() >= deadline) throw new Error('ERR_GAME_PROXY_WORKERS_ACTIVE');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  } finally {
+    if (attachedHere && debuggerApi.isAttached()) debuggerApi.detach();
+  }
 }
 
 async function verifyGameProxyRoute(session) {
@@ -2760,13 +2788,20 @@ async function applyProxySettings(proxy = currentConfig.proxy, save = false) {
   const session = view.webContents.session;
   const changingRoute = save && (gameProxyBlocked ||
     rules.proxyRules !== getGameProxyConfig(currentConfig.proxy).proxyRules);
-  if (changingRoute) gameProxyChange ||= {};
+  if (changingRoute) {
+    gameProxyChange ||= gameProxyReload?.view === view ? { ...gameProxyReload } : {};
+    gameProxyReload = null;
+  }
   if ((proxy?.enabled || currentConfig.proxy?.enabled) && !gameProxyBlocked) {
     setGameProxyBlocked(session, true);
   }
   const task = (async () => {
     try {
-      if (changingRoute) await unloadGameForProxyChange(view, gameProxyChange);
+      if (changingRoute) {
+        await unloadGameForProxyChange(view, gameProxyChange);
+        if (view !== gameView || view.webContents.isDestroyed()) return false;
+        await stopGameProxyWorkers(view.webContents);
+      }
       if (view !== gameView || view.webContents.isDestroyed()) return false;
       await session.setProxy(rules);
       if (rules.mode === 'fixed_servers') await verifyGameProxyRoute(session);
