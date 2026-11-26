@@ -95,7 +95,9 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-        run: npm run dist:mac -- --publish never -c.mac.icon=resources/icon.png
+        run: >-
+          npm run dist:mac -- --publish never -c.mac.icon=resources/icon.png
+          -c.mac.identity=- -c.mac.notarize=false
 
       - name: Make update manifest compatible with legacy clients
         run: npm run release:manifest
@@ -104,9 +106,23 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
+          dmg="dist/MT-Aigis-${version}-arm64.dmg"
+          zip="dist/MT-Aigis-${version}-arm64.zip"
           npm run release:verify
-          hdiutil verify "dist/MT-Aigis-${version}-arm64.dmg"
-          unzip -tq "dist/MT-Aigis-${version}-arm64.zip"
+          hdiutil verify "$dmg"
+          unzip -tq "$zip"
+
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          ditto -x -k "$zip" "$scratch/zip"
+          codesign --verify --deep --strict "$scratch/zip/MT-Aigis.app"
+
+          mkdir "$scratch/dmg"
+          hdiutil attach -readonly -nobrowse -mountpoint "$scratch/dmg" "$dmg"
+          dmg_signature_status=0
+          codesign --verify --deep --strict "$scratch/dmg/MT-Aigis.app" || dmg_signature_status=$?
+          hdiutil detach "$scratch/dmg"
+          exit "$dmg_signature_status"
 
       - name: Create draft release
         env:
