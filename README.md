@@ -38,6 +38,12 @@
 - [功能] 自定义游戏链接, 可以加载其他版本 Aigis(虽然有适配但因合规原因不建议加载Fanza版哟).
 - [功能] 自定义代理.
 - [功能] 摸鱼模式.
+
+  <p align="center">
+    <img src="./.github/assets/mini-window-demo-1.gif" width="48%" alt="摸鱼模式" />
+    <img src="./.github/assets/mini-window-demo-2.gif" width="48%" alt="摸鱼模式" />
+  </p>
+
 - [规划更新] 指针灵敏度. 更现代化的GUI.
 
 ### 安装提示
@@ -79,6 +85,12 @@ xattr -dr com.apple.quarantine /Applications/MT-Aigis.app
 - [功能] 自訂遊戲連結，可以載入其他版本的 Aigis（雖然有適配，但因合規原因不建議載入 Fanza 版喲）。
 - [功能] 自訂代理.
 - [功能] 摸魚模式.
+
+  <p align="center">
+    <img src="./.github/assets/mini-window-demo-1.gif" width="48%" alt="摸魚模式" />
+    <img src="./.github/assets/mini-window-demo-2.gif" width="48%" alt="摸魚模式" />
+  </p>
+
 - [規劃更新] 游標靈敏度、更現代化的 GUI。
 
 ### 安裝提示
@@ -120,6 +132,12 @@ If you need anything, feel free to reach me through NGA, Tieba, or QQ (128396219
 - [Feature] Load other Aigis versions with a custom game URL. Although adapted, loading the Fanza version is not recommended for compliance reasons.
 - [Feature] Custom proxy.
 - [Feature] Mini Window mode.
+
+  <p align="center">
+    <img src="./.github/assets/mini-window-demo-1.gif" width="48%" alt="Mini Window mode" />
+    <img src="./.github/assets/mini-window-demo-2.gif" width="48%" alt="Mini Window mode" />
+  </p>
+
 - [Planned] Pointer sensitivity and a more modern GUI.
 
 ### Installation Note
