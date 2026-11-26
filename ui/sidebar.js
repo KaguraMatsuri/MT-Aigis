@@ -124,7 +124,7 @@
       networkRefreshed: '网络信息已刷新',
       networkFailed: '检测失败',
       proxyTitle: '自定义代理',
-      proxyScheme: '协议',
+      proxyDefault: '默认',
       proxyHost: '域名或 IP',
       proxyPort: '端口',
       proxyReloadHint: '切换线路会重新加载一次游戏页面，可能打断当前操作。',
@@ -255,7 +255,7 @@
       networkRefreshed: '網路資訊已重新整理',
       networkFailed: '偵測失敗',
       proxyTitle: '自訂代理',
-      proxyScheme: '協定',
+      proxyDefault: '預設',
       proxyHost: '網域名稱或 IP',
       proxyPort: '連接埠',
       proxyReloadHint: '切換連線會重新載入一次遊戲頁面，可能中斷目前的操作。',
@@ -386,7 +386,7 @@
       networkRefreshed: 'Network info refreshed',
       networkFailed: 'Check failed',
       proxyTitle: 'Custom proxy',
-      proxyScheme: 'Protocol',
+      proxyDefault: 'Default',
       proxyHost: 'Domain name or IP',
       proxyPort: 'Port',
       proxyReloadHint: 'Switching connections reloads the game page and may interrupt what you are doing.',
@@ -517,7 +517,7 @@
       networkRefreshed: 'ネットワーク情報を更新しました',
       networkFailed: '確認失敗',
       proxyTitle: 'カスタムプロキシ',
-      proxyScheme: 'プロトコル',
+      proxyDefault: 'デフォルト',
       proxyHost: 'ドメイン名または IP',
       proxyPort: 'ポート',
       proxyReloadHint: '接続を切り替えるとゲームページが再読み込みされ、操作が中断されることがあります。',
@@ -815,7 +815,6 @@
 
   function installProxySettings(configTask) {
     var form = byId('proxy-settings');
-    var enabled = byId('proxy-enabled');
     var picker = byId('proxy-scheme-picker');
     var summary = byId('proxy-scheme-summary');
     var currentScheme = byId('proxy-scheme-current');
@@ -828,7 +827,7 @@
     var save = byId('proxy-save');
     var message = byId('proxy-message');
     var saved = null;
-    var scheme = 'http';
+    var scheme = 'system';
     var endpointEditing = false;
     var saving = false;
     var canRetry = false;
@@ -841,7 +840,7 @@
     }
 
     function draft() {
-      if (!enabled.checked) return { ...saved, enabled: false };
+      if (scheme === 'system') return { ...saved, enabled: false };
       return {
         enabled: true,
         scheme: scheme,
@@ -852,28 +851,27 @@
 
     function syncControls() {
       var locked = !saved || saving;
-      var showEndpoint = enabled.checked && endpointEditing;
-      enabled.disabled = locked;
+      var showEndpoint = scheme !== 'system' && endpointEditing;
       summary.setAttribute('aria-disabled', String(locked));
       endpoint.disabled = locked || !showEndpoint;
       endpoint.classList.toggle('hidden', !showEndpoint);
-      currentScheme.textContent = scheme.toUpperCase();
+      if (scheme === 'system') currentScheme.dataset.i18n = 'proxyDefault';
+      else delete currentScheme.dataset.i18n;
+      currentScheme.textContent = scheme === 'system' ? t('proxyDefault') : scheme.toUpperCase();
       choices.forEach(function (button) {
         button.disabled = locked;
-        button.classList.toggle('primary', button.dataset.proxyScheme === scheme);
+        button.setAttribute('aria-pressed', String(button.dataset.proxyScheme === scheme));
       });
       var next = draft();
-      var changed = saved && ['enabled', 'scheme', 'host', 'port'].some(function (key) {
-        return next[key] !== saved[key];
-      });
+      var changed = saved && (next.enabled !== saved.enabled || (showEndpoint &&
+        ['scheme', 'host', 'port'].some(function (key) { return next[key] !== saved[key]; })));
       actions.classList.toggle('hidden', !(showEndpoint || changed || canRetry));
       cancel.disabled = locked;
-      save.disabled = locked || (enabled.checked && !endpointEditing && changed) || (!changed && !canRetry);
+      save.disabled = locked || (!changed && !canRetry);
     }
 
     function resetEditor() {
-      enabled.checked = saved.enabled;
-      scheme = ['http', 'https', 'socks5'].includes(saved.scheme) ? saved.scheme : 'http';
+      scheme = saved.enabled && ['http', 'https', 'socks5'].includes(saved.scheme) ? saved.scheme : 'system';
       host.value = saved.host;
       port.value = saved.port;
       endpointEditing = false;
@@ -895,18 +893,12 @@
     choices.forEach(function (button) {
       button.addEventListener('click', function () {
         scheme = button.dataset.proxyScheme;
-        enabled.checked = true;
-        endpointEditing = true;
+        endpointEditing = scheme !== 'system';
         picker.open = false;
         showMessage('');
         syncControls();
-        host.focus();
+        (endpointEditing ? host : summary).focus();
       });
-    });
-    enabled.addEventListener('change', function () {
-      endpointEditing = false;
-      picker.open = enabled.checked;
-      syncControls();
     });
     cancel.addEventListener('click', function () {
       resetEditor();

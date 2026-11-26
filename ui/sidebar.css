@@ -1087,35 +1087,62 @@ select {
   background: var(--surface-strong);
 }
 
-#proxy-enabled {
-  width: 18px;
-  height: 18px;
-  min-height: 0;
-  padding: 0;
-  accent-color: var(--accent);
-}
-
 #proxy-scheme-picker {
-  margin: 12px 0;
+  margin-top: 12px;
 }
 
 #proxy-scheme-summary {
-  list-style-position: inside;
-  padding: 10px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0 32px;
   cursor: pointer;
 }
 
-#proxy-scheme-current {
-  float: right;
+#proxy-scheme-summary::-webkit-details-marker {
+  display: none;
 }
 
-#proxy-scheme-picker .nav-grid {
+#proxy-scheme-summary::after {
+  position: absolute;
+  right: 14px;
+  top: calc(50% - 5px);
+  width: 7px;
+  height: 7px;
+  border: solid var(--muted);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+  content: "";
+}
+
+#proxy-scheme-picker[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+.proxy-scheme-options {
+  display: grid;
   margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.proxy-scheme-options .control {
+  border: 0;
+  border-radius: 0;
+}
+
+.proxy-scheme-options .control + .control {
+  border-top: 1px solid var(--line);
+}
+
+.proxy-scheme-options .control[aria-pressed="true"] {
+  background: var(--surface-hover);
 }
 
 #proxy-endpoint-fields {
   min-width: 0;
-  margin: 0;
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
 }

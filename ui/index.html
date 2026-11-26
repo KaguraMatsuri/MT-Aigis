@@ -256,16 +256,13 @@
         </section>
 
         <form id="proxy-settings" class="card" aria-labelledby="proxy-settings-title">
-          <div class="card-head">
-            <h2 id="proxy-settings-title"><label for="proxy-enabled" data-i18n="proxyTitle">自定义代理</label></h2>
-            <input id="proxy-enabled" type="checkbox" disabled>
-          </div>
+          <h2 id="proxy-settings-title" data-i18n="proxyTitle">自定义代理</h2>
           <details id="proxy-scheme-picker">
-            <summary id="proxy-scheme-summary" class="control" aria-disabled="true">
-              <span data-i18n="proxyScheme">协议</span>
-              <strong id="proxy-scheme-current">HTTP</strong>
+            <summary id="proxy-scheme-summary" class="control" aria-labelledby="proxy-settings-title proxy-scheme-current" aria-disabled="true">
+              <span id="proxy-scheme-current" data-i18n="proxyDefault">默认</span>
             </summary>
-            <div class="nav-grid">
+            <div class="proxy-scheme-options">
+              <button type="button" class="control" data-proxy-scheme="system" data-i18n="proxyDefault">默认</button>
               <button type="button" class="control" data-proxy-scheme="http">HTTP</button>
               <button type="button" class="control" data-proxy-scheme="https">HTTPS</button>
               <button type="button" class="control" data-proxy-scheme="socks5">SOCKS5</button>
