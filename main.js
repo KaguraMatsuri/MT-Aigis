@@ -943,6 +943,7 @@ function createWindow() {
     return;
   }
   resetGameContent();
+  gameViewLoadingMasked = isGameUrl(getHomeUrl());
   gameViewFallbackHidden = normalizeTelemetryConsent(currentConfig.telemetry.consent) === null;
   debugLog('runtime', {
     electron: process.versions.electron,
@@ -1033,10 +1034,10 @@ function gameHostWindow() {
 
 function canOpenMiniWindow() {
   return process.platform === 'darwin' && !!mainWindow && !mainWindow.isDestroyed() &&
-    !!gameView && !gameView.webContents.isDestroyed() && gameContentReady &&
-    !gameViewLoadingMasked && !gameViewFallbackHidden && !overlayState && !updatePrompt &&
+    !!gameView && !gameView.webContents.isDestroyed() && !gameViewFallbackHidden &&
+    !overlayState && !updatePrompt &&
     !clickerWarningTask && !sidebarTransitionActive && !quitAfterFlush &&
-    isGameUrl(gameView.webContents.getURL());
+    (gameViewLoadingMasked || (gameContentReady && isGameUrl(gameView.webContents.getURL())));
 }
 
 function bindGameBackgroundActivity(window) {
@@ -1078,14 +1079,14 @@ function openMiniWindow() {
   if (miniWindow) return Promise.resolve(true);
   if (miniWindowTask) return miniWindowTask;
   if (!canOpenMiniWindow()) return Promise.resolve(false);
-  const task = createMiniWindow(mainWindow, gameView, gameContentEpoch);
+  const task = createMiniWindow(mainWindow, gameView);
   miniWindowTask = task;
   return task.finally(() => {
     if (miniWindowTask === task) miniWindowTask = null;
   });
 }
 
-async function createMiniWindow(host, view, epoch) {
+async function createMiniWindow(host, view) {
   const { workArea } = screen.getDisplayMatching(host.getBounds());
   const width = Math.min(480, workArea.width);
   const size = gameContentSize || { width: 960, height: 640 };
@@ -1136,8 +1137,7 @@ async function createMiniWindow(host, view, epoch) {
   });
   try {
     await window.loadFile(path.join(__dirname, 'ui', 'mini-window.html'));
-    if (window.isDestroyed() || host !== mainWindow || view !== gameView ||
-      epoch !== gameContentEpoch || !canOpenMiniWindow()) {
+    if (window.isDestroyed() || host !== mainWindow || view !== gameView || !canOpenMiniWindow()) {
       if (!window.isDestroyed()) window.destroy();
       return false;
     }

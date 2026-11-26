@@ -233,11 +233,38 @@ test('opens one resizable mini window with the live game and moves both views ba
   assert.equal(h.activityHosts.at(-1).host, h.mainWindow);
 });
 
-test('keeps the original game visible if the mini shell cannot load or the game navigates during opening', async () => {
+test('opens one mini window while the same view is still loading the game', async (t) => {
+  const h = hostFixture();
+  const open = h.handlers.get('window:mini:open');
+  const origin = h.eventFor(h.mainWindow);
+  h.context.gameContentReady = false;
+  h.context.gameContentSize = null;
+  h.context.gameViewLoadingMasked = true;
+  h.gameView.webContents.getURL = () => '';
+  h.context.gameViewFallbackHidden = true;
+  assert.equal(await open(origin), false);
+  h.context.gameViewFallbackHidden = false;
+
+  const opening = open(origin);
+  h.context.gameContentEpoch++;
+  h.gameView.webContents.getURL = () => DEFAULT_URL;
+  assert.equal(await opening, true);
+  const mini = h.windows[0];
+  t.after(() => mini.close());
+  assert.deepEqual(mini.contentView.children, [h.gameView, h.overlayView]);
+  assert.deepEqual(mini.getContentSize(), [480, 368]);
+  assert.equal(h.context.gameViewLoadingMasked, true);
+  assert.equal(h.mainWindow.visible, false);
+});
+
+test('keeps the main window visible if the mini shell fails or the view leaves the game during opening', async () => {
   for (const changedPage of [false, true]) {
     const h = hostFixture(async () => {
       if (!changedPage) throw new Error('fixture load error');
       h.context.gameContentEpoch++;
+      h.context.gameContentReady = false;
+      h.context.gameViewLoadingMasked = false;
+      h.gameView.webContents.getURL = () => 'https://accounts.dmm.com/';
     });
     assert.equal(await h.handlers.get('window:mini:open')(h.eventFor(h.mainWindow)), false);
     assert.equal(h.context.miniWindow, null);

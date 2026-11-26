@@ -603,7 +603,8 @@ h2 {
 
 #scroll-level,
 #clicker-cps,
-#game-volume {
+#game-volume,
+#mini-opacity {
   min-height: 18px;
   padding: 0;
   border: 0;
